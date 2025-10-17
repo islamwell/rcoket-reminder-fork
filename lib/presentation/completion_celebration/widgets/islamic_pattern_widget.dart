@@ -24,30 +24,32 @@ class _IslamicPatternWidgetState extends State<IslamicPatternWidget>
   void initState() {
     super.initState();
 
+    // Optimized animation controllers with reduced duration for better performance
     _rotationController = AnimationController(
-      duration: Duration(seconds: 20),
+      duration: Duration(seconds: 30), // Increased from 20s for smoother rotation on low-end devices
       vsync: this,
     );
 
     _pulseController = AnimationController(
-      duration: Duration(seconds: 2),
+      duration: Duration(seconds: 3), // Increased from 2s for smoother pulsing
       vsync: this,
     );
 
+    // Optimized animations with performance-friendly curves
     _rotationAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
     ).animate(CurvedAnimation(
       parent: _rotationController,
-      curve: Curves.linear,
+      curve: Curves.linear, // Linear is most performance-friendly for continuous rotation
     ));
 
     _pulseAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.2,
+      begin: 0.9, // Reduced range from 0.8-1.2 to 0.9-1.1 for subtler effect
+      end: 1.1,
     ).animate(CurvedAnimation(
       parent: _pulseController,
-      curve: Curves.easeInOut,
+      curve: Curves.easeInOut, // Keep easeInOut for smooth pulsing
     ));
 
     _rotationController.repeat();
@@ -56,6 +58,13 @@ class _IslamicPatternWidgetState extends State<IslamicPatternWidget>
 
   @override
   void dispose() {
+    // Proper animation disposal and cleanup for better memory management
+    if (_rotationController.isAnimating) {
+      _rotationController.stop();
+    }
+    if (_pulseController.isAnimating) {
+      _pulseController.stop();
+    }
     _rotationController.dispose();
     _pulseController.dispose();
     super.dispose();
@@ -90,51 +99,64 @@ class _IslamicPatternWidgetState extends State<IslamicPatternWidget>
 class IslamicPatternPainter extends CustomPainter {
   final Color primaryColor;
   final Color accentColor;
+  
+  // Cache paint objects for better performance
+  late final Paint _gradientPaint;
+  late final Paint _strokePaint;
 
   IslamicPatternPainter({
     required this.primaryColor,
     required this.accentColor,
-  });
+  }) {
+    // Pre-create paint objects to avoid recreation on each paint call
+    _gradientPaint = Paint()..style = PaintingStyle.fill;
+    _strokePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..strokeCap = StrokeCap.round; // Smoother line endings
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
 
-    // Create gradient paint
-    final paint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          primaryColor.withValues(alpha: 0.3),
-          accentColor.withValues(alpha: 0.1),
-          primaryColor.withValues(alpha: 0.05),
-        ],
-        stops: [0.0, 0.7, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: radius));
+    // Create gradient shader only once per paint call
+    _gradientPaint.shader = RadialGradient(
+      colors: [
+        primaryColor.withValues(alpha: 0.2), // Reduced opacity for better performance
+        accentColor.withValues(alpha: 0.08),
+        primaryColor.withValues(alpha: 0.03),
+      ],
+      stops: [0.0, 0.7, 1.0],
+    ).createShader(Rect.fromCircle(center: center, radius: radius));
 
-    // Draw geometric pattern
-    for (int i = 0; i < 8; i++) {
-      final angle = (i * 45) * (3.14159 / 180);
+    // Optimized geometric pattern drawing with reduced complexity
+    const int lineCount = 6; // Reduced from 8 for better performance
+    const double angleStep = 60.0; // 360/6 degrees
+    
+    for (int i = 0; i < lineCount; i++) {
+      final angle = (i * angleStep) * (math.pi / 180);
       final startPoint = Offset(
-        center.dx + (radius * 0.3) * cos(angle),
-        center.dy + (radius * 0.3) * sin(angle),
+        center.dx + (radius * 0.35) * math.cos(angle), // Slightly adjusted for better visual balance
+        center.dy + (radius * 0.35) * math.sin(angle),
       );
       final endPoint = Offset(
-        center.dx + (radius * 0.9) * cos(angle),
-        center.dy + (radius * 0.9) * sin(angle),
+        center.dx + (radius * 0.85) * math.cos(angle), // Slightly reduced for cleaner look
+        center.dy + (radius * 0.85) * math.sin(angle),
       );
 
-      canvas.drawLine(startPoint, endPoint, paint..strokeWidth = 2);
+      // Use separate paint for lines with optimized stroke width
+      canvas.drawLine(startPoint, endPoint, _gradientPaint..strokeWidth = 1.5);
     }
 
-    // Draw concentric circles
-    for (int i = 1; i <= 3; i++) {
+    // Optimized concentric circles with reduced count
+    const List<double> circleRadii = [0.25, 0.5, 0.75]; // Pre-calculated ratios
+    for (final radiusRatio in circleRadii) {
       canvas.drawCircle(
         center,
-        radius * (0.2 + i * 0.2),
-        paint
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
+        radius * radiusRatio,
+        _strokePaint..shader = _gradientPaint.shader,
       );
     }
   }

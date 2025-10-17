@@ -13,6 +13,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
@@ -29,7 +30,7 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled true
-        minSdkVersion 23
+        minSdkVersion flutter.minSdkVersion
     }
 
     buildTypes {
@@ -50,4 +51,5 @@ flutter {
 dependencies {
     implementation "androidx.multidex:multidex:2.0.1"
     implementation 'com.google.android.material:material:1.9.0'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 }

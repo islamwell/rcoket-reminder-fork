@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sizer/sizer.dart';
 import 'dart:math';
+import 'package:file_picker/file_picker.dart';
 
 import '../../../core/app_export.dart';
 
@@ -22,6 +23,7 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
     with SingleTickerProviderStateMixin {
   late AnimationController _waveController;
   bool _isPlaying = false;
+  String? _currentPlayingId;
 
   final List<Map<String, dynamic>> defaultAudios = [
     {
@@ -30,6 +32,7 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
       'duration': '0:15',
       'type': 'default',
       'description': 'Soft chime with Islamic greeting',
+      'path': 'assets/audio/gentle_reminder.mp3',
     },
     {
       'id': 'default_2',
@@ -37,6 +40,7 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
       'duration': '0:30',
       'type': 'default',
       'description': 'Beautiful Quranic verse recitation',
+      'path': 'assets/audio/gentle_reminder.mp3', // Using same file for demo
     },
     {
       'id': 'default_3',
@@ -44,6 +48,7 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
       'duration': '0:10',
       'type': 'default',
       'description': 'Traditional Islamic bell sound',
+      'path': 'assets/audio/gentle_reminder.mp3', // Using same file for demo
     },
   ];
 
@@ -54,6 +59,18 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
       duration: Duration(seconds: 2),
       vsync: this,
     );
+    
+    // Listen to audio player state changes
+    AudioPlayerService.instance.playingStream.listen((audioId) {
+      if (mounted) {
+        setState(() {
+          if (audioId == null) {
+            _isPlaying = false;
+            _currentPlayingId = null;
+          }
+        });
+      }
+    });
   }
 
   @override
@@ -109,7 +126,7 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
       child: Row(
         children: [
           GestureDetector(
-            onTap: _togglePlayback,
+            onTap: () => _playSelectedAudio(),
             child: Container(
               width: 12.w,
               height: 12.w,
@@ -118,7 +135,7 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
                 shape: BoxShape.circle,
               ),
               child: CustomIconWidget(
-                iconName: _isPlaying ? 'pause' : 'play_arrow',
+                iconName: (_isPlaying && _currentPlayingId == widget.selectedAudio?['id']) ? 'pause' : 'play_arrow',
                 color: AppTheme.lightTheme.colorScheme.onPrimary,
                 size: 20,
               ),
@@ -138,10 +155,13 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
                 SizedBox(height: 0.5.h),
                 Row(
                   children: [
-                    Text(
-                      widget.selectedAudio!['duration'] ?? '0:00',
-                      style: AppTheme.lightTheme.textTheme.bodySmall?.copyWith(
-                        color: AppTheme.lightTheme.colorScheme.onSurfaceVariant,
+                    Flexible(
+                      child: Text(
+                        widget.selectedAudio!['duration'] ?? '0:00',
+                        style: AppTheme.lightTheme.textTheme.bodySmall?.copyWith(
+                          color: AppTheme.lightTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     SizedBox(width: 2.w),
@@ -302,6 +322,23 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
                 ],
               ),
             ),
+            // Play button
+            GestureDetector(
+              onTap: () => _playAudio(audio),
+              child: Container(
+                padding: EdgeInsets.all(2.w),
+                decoration: BoxDecoration(
+                  color: AppTheme.lightTheme.colorScheme.primary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: CustomIconWidget(
+                  iconName: _isPlaying && _currentPlayingId == audio['id'] ? 'pause' : 'play_arrow',
+                  color: AppTheme.lightTheme.colorScheme.primary,
+                  size: 16,
+                ),
+              ),
+            ),
+            SizedBox(width: 2.w),
             Text(
               audio['duration'],
               style: AppTheme.lightTheme.textTheme.bodySmall?.copyWith(
@@ -309,12 +346,28 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
               ),
             ),
             SizedBox(width: 2.w),
-            if (isSelected)
-              CustomIconWidget(
-                iconName: 'check_circle',
-                color: AppTheme.lightTheme.colorScheme.primary,
-                size: 20,
+            // Select button
+            GestureDetector(
+              onTap: () => widget.onAudioSelected(audio),
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 3.w, vertical: 1.h),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? AppTheme.lightTheme.colorScheme.primary
+                      : AppTheme.lightTheme.colorScheme.outline.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  isSelected ? 'Selected' : 'Select',
+                  style: AppTheme.lightTheme.textTheme.bodySmall?.copyWith(
+                    color: isSelected
+                        ? AppTheme.lightTheme.colorScheme.onPrimary
+                        : AppTheme.lightTheme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
+            ),
           ],
         ),
       ),
@@ -423,39 +476,129 @@ class _AudioSelectionWidgetState extends State<AudioSelectionWidget>
     }
   }
 
-  void _showAudioLibrary() {
-    Navigator.pushNamed(context, '/audio-library');
+  Future<void> _playAudio(Map<String, dynamic> audio) async {
+    try {
+      final audioId = audio['id'] as String;
+      final audioPath = audio['path'] as String? ?? 'assets/audio/gentle_reminder.mp3';
+      
+      if (_isPlaying && _currentPlayingId == audioId) {
+        // Stop current audio
+        await AudioPlayerService.instance.stopAudio();
+        setState(() {
+          _isPlaying = false;
+          _currentPlayingId = null;
+        });
+      } else {
+        // Play new audio
+        await AudioPlayerService.instance.playAudio(audioId, audioPath);
+        setState(() {
+          _isPlaying = true;
+          _currentPlayingId = audioId;
+        });
+        
+        // Auto-stop after duration (simulate based on duration string)
+        final durationStr = audio['duration'] as String;
+        final seconds = _parseDuration(durationStr);
+        Future.delayed(Duration(seconds: seconds), () {
+          if (mounted && _currentPlayingId == audioId) {
+            setState(() {
+              _isPlaying = false;
+              _currentPlayingId = null;
+            });
+          }
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to play audio: ${e.toString()}')),
+      );
+    }
   }
 
-  void _uploadCustomAudio() {
-    // Simulate file picker
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Upload Audio'),
-        content: Text(
-            'File picker functionality will be implemented here. Users can select MP3 files from their device.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Simulate successful upload
-              widget.onAudioSelected({
-                'id': 'custom_${DateTime.now().millisecondsSinceEpoch}',
-                'name': 'My Custom Audio.mp3',
-                'duration': '1:23',
-                'type': 'custom',
-                'description': 'Custom uploaded audio file',
-              });
-            },
-            child: Text('Upload'),
-          ),
-        ],
-      ),
-    );
+  int _parseDuration(String duration) {
+    // Parse duration string like "0:15" to seconds
+    try {
+      final parts = duration.split(':');
+      if (parts.length == 2) {
+        final minutes = int.parse(parts[0]);
+        final seconds = int.parse(parts[1]);
+        return (minutes * 60) + seconds;
+      }
+    } catch (e) {
+      // Fallback to 15 seconds
+    }
+    return 15;
+  }
+
+  Future<void> _playSelectedAudio() async {
+    if (widget.selectedAudio != null) {
+      await _playAudio(widget.selectedAudio!);
+    }
+  }
+
+  void _showAudioLibrary() async {
+    final selectedAudio = await Navigator.pushNamed(
+      context, 
+      '/audio-library-selection'
+    ) as Map<String, dynamic>?;
+    
+    if (selectedAudio != null) {
+      widget.onAudioSelected(selectedAudio);
+    }
+  }
+
+  void _uploadCustomAudio() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['mp3', 'm4a', 'wav', 'aac'],
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (file.path != null) {
+          // Copy file to app directory
+          final filename = file.name;
+          final copiedPath = await AudioStorageService.instance
+              .copyFileToAppDirectory(file.path!, filename);
+
+          // Get file size
+          final fileSize = await AudioStorageService.instance.getFileSize(copiedPath);
+
+          final audioFile = {
+            "id": DateTime.now().millisecondsSinceEpoch.toString(),
+            "filename": filename,
+            "duration": "Unknown",
+            "size": AudioStorageService.instance.formatFileSize(fileSize),
+            "uploadDate": DateTime.now().toString().split(' ')[0],
+            "isFavorite": false,
+            "category": "Uploaded",
+            "path": copiedPath,
+            "type": "uploaded",
+            "description": "Custom uploaded audio file",
+          };
+
+          await AudioStorageService.instance.saveAudioFile(audioFile);
+          
+          // Select the uploaded audio
+          widget.onAudioSelected({
+            'id': audioFile['id'],
+            'name': audioFile['filename'],
+            'duration': audioFile['duration'],
+            'type': 'uploaded',
+            'description': audioFile['description'],
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Audio file uploaded successfully!')),
+          );
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Upload failed: ${e.toString()}')),
+      );
+    }
   }
 }

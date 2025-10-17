@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../../core/app_export.dart';
+import 'countdown_display_widget.dart';
 
 class ReminderCardWidget extends StatelessWidget {
   final Map<String, dynamic> reminder;
@@ -35,7 +36,6 @@ class ReminderCardWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isActive = (reminder["status"] as String) == "active";
-    final isPaused = (reminder["status"] as String) == "paused";
 
     return Dismissible(
       key: Key('reminder_${reminder["id"]}'),
@@ -100,9 +100,9 @@ class ReminderCardWidget extends StatelessWidget {
                           SizedBox(height: 0.5.h),
                           Row(
                             children: [
-                              _buildFrequencyBadge(context),
+                              Flexible(child: _buildFrequencyBadge(context)),
                               SizedBox(width: 2.w),
-                              _buildStatusBadge(context),
+                              Flexible(child: _buildStatusBadge(context)),
                             ],
                           ),
                         ],
@@ -118,17 +118,8 @@ class ReminderCardWidget extends StatelessWidget {
                 SizedBox(height: 2.h),
                 Row(
                   children: [
-                    CustomIconWidget(
-                      iconName: 'schedule',
-                      color: theme.colorScheme.primary,
-                      size: 16,
-                    ),
-                    SizedBox(width: 2.w),
-                    Text(
-                      'Next: ${reminder["nextOccurrence"]}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                    Expanded(
+                      child: _buildCountdownDisplay(context),
                     ),
                     Spacer(),
                     if (reminder["audioFile"] != null) ...[
@@ -188,7 +179,16 @@ class ReminderCardWidget extends StatelessWidget {
 
   Widget _buildFrequencyBadge(BuildContext context) {
     final theme = Theme.of(context);
-    final frequency = reminder["frequency"] as String;
+    final frequency = reminder["frequency"];
+    
+    String frequencyText;
+    if (frequency is String) {
+      frequencyText = frequency;
+    } else if (frequency is Map<String, dynamic>) {
+      frequencyText = _getFrequencyDisplayText(frequency);
+    } else {
+      frequencyText = 'Unknown';
+    }
 
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 2.w, vertical: 0.5.h),
@@ -197,13 +197,41 @@ class ReminderCardWidget extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.smallRadius),
       ),
       child: Text(
-        frequency.toUpperCase(),
+        frequencyText.toUpperCase(),
         style: theme.textTheme.labelSmall?.copyWith(
           color: theme.colorScheme.primary,
           fontWeight: FontWeight.w600,
         ),
       ),
     );
+  }
+  
+  String _getFrequencyDisplayText(Map<String, dynamic> frequency) {
+    // Handle both 'type' and 'id' fields for backward compatibility
+    final type = (frequency['type'] ?? frequency['id']) as String?;
+    switch (type) {
+      case 'daily':
+        return 'Daily';
+      case 'weekly':
+        return 'Weekly';
+      case 'hourly':
+        return 'Hourly';
+      case 'monthly':
+        return 'Monthly';
+      case 'once':
+        return 'Once';
+      case 'custom':
+        final interval = frequency['interval'] ?? frequency['intervalValue'];
+        final unit = frequency['unit'] ?? frequency['intervalUnit'];
+        if (interval != null && unit != null) {
+          return '$interval $unit';
+        }
+        return 'Custom';
+      case 'test':
+        return 'Test';
+      default:
+        return 'Custom';
+    }
   }
 
   Widget _buildStatusBadge(BuildContext context) {
@@ -245,6 +273,102 @@ class ReminderCardWidget extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildCountdownDisplay(BuildContext context) {
+    final theme = Theme.of(context);
+    final status = reminder["status"] as String;
+    
+    // Handle paused and completed reminders
+    if (status == 'paused') {
+      return Row(
+        children: [
+          CustomIconWidget(
+            iconName: 'pause',
+            color: AppTheme.warningLight,
+            size: 16,
+          ),
+          SizedBox(width: 2.w),
+          Text(
+            'Paused',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppTheme.warningLight,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      );
+    }
+    
+    if (status == 'completed') {
+      return Row(
+        children: [
+          CustomIconWidget(
+            iconName: 'check_circle',
+            color: AppTheme.completionGold,
+            size: 16,
+          ),
+          SizedBox(width: 2.w),
+          Text(
+            'Completed',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppTheme.completionGold,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      );
+    }
+    
+    // For active reminders, use the countdown display widget
+    final nextOccurrenceDateTimeStr = reminder["nextOccurrenceDateTime"] as String?;
+    
+    if (nextOccurrenceDateTimeStr == null) {
+      // Fallback to static display if no DateTime available
+      return Row(
+        children: [
+          CustomIconWidget(
+            iconName: 'schedule',
+            color: theme.colorScheme.primary,
+            size: 16,
+          ),
+          SizedBox(width: 2.w),
+          Text(
+            'Next: ${reminder["nextOccurrence"] ?? "Unknown"}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      );
+    }
+    
+    try {
+      return CountdownDisplayWidget(
+        reminder: reminder,
+        textStyle: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      );
+    } catch (e) {
+      // Fallback to static display if parsing fails
+      return Row(
+        children: [
+          CustomIconWidget(
+            iconName: 'schedule',
+            color: theme.colorScheme.primary,
+            size: 16,
+          ),
+          SizedBox(width: 2.w),
+          Text(
+            'Next: ${reminder["nextOccurrence"] ?? "Unknown"}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      );
+    }
   }
 
   Widget _buildSwipeBackground(BuildContext context, {required bool isLeft}) {

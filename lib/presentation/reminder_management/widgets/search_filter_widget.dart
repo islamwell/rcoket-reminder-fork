@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:sizer/sizer.dart';
 
@@ -34,6 +35,7 @@ class SearchFilterWidget extends StatefulWidget {
 class _SearchFilterWidgetState extends State<SearchFilterWidget> {
   late TextEditingController _searchController;
   bool _isFilterExpanded = false;
+  Timer? _debounceTimer;
 
   final List<String> _categories = [
     'spiritual',
@@ -66,7 +68,15 @@ class _SearchFilterWidgetState extends State<SearchFilterWidget> {
   @override
   void dispose() {
     _searchController.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(Duration(milliseconds: 300), () {
+      widget.onSearchChanged(query);
+    });
   }
 
   @override
@@ -116,7 +126,7 @@ class _SearchFilterWidgetState extends State<SearchFilterWidget> {
           Expanded(
             child: TextField(
               controller: _searchController,
-              onChanged: widget.onSearchChanged,
+              onChanged: _onSearchChanged,
               decoration: InputDecoration(
                 hintText: 'Search reminders...',
                 prefixIcon: Padding(
@@ -131,6 +141,7 @@ class _SearchFilterWidgetState extends State<SearchFilterWidget> {
                     ? IconButton(
                         onPressed: () {
                           _searchController.clear();
+                          _debounceTimer?.cancel();
                           widget.onSearchChanged('');
                         },
                         icon: CustomIconWidget(

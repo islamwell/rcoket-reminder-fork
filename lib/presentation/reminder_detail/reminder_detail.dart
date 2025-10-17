@@ -25,58 +25,55 @@ class _ReminderDetailState extends State<ReminderDetail>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  // Mock reminder data
-  final Map<String, dynamic> reminderData = {
-    "id": 1,
-    "title": "Call Mom",
-    "category": "Family",
-    "description": "Weekly call to check on mom and share updates about life",
-    "frequency": {
-      "type": "weekly",
-      "interval": 1,
-      "days": ["Sunday"],
-      "time": "19:00"
-    },
-    "nextDue": "2025-08-31T19:00:00.000Z",
-    "audioFile": {
-      "id": 1,
-      "name": "gentle-reminder.mp3",
-      "duration": "2:30",
-      "size": "3.2 MB",
-      "url": "https://example.com/audio/gentle-reminder.mp3"
-    },
-    "createdAt": "2025-08-20T10:30:00.000Z",
-    "isPaused": false,
-    "completedCount": 12,
-    "streak": 3,
-    "successRate": 85,
-    "completionHistory": [
-      {
-        "id": 1,
-        "completedAt": "2025-08-25T19:15:00.000Z",
-        "note": "Had a great conversation about her garden"
-      },
-      {"id": 2, "completedAt": "2025-08-18T19:30:00.000Z", "note": null},
-      {
-        "id": 3,
-        "completedAt": "2025-08-11T20:00:00.000Z",
-        "note": "Discussed upcoming family reunion"
-      },
-      {"id": 4, "completedAt": "2025-08-04T19:45:00.000Z", "note": null},
-      {
-        "id": 5,
-        "completedAt": "2025-07-28T19:20:00.000Z",
-        "note": "She shared her new recipe"
-      },
-      {"id": 6, "completedAt": "2025-07-21T19:10:00.000Z", "note": null}
-    ]
-  };
+  // Reminder data - will be loaded from arguments or service
+  Map<String, dynamic>? reminderData;
 
   @override
   void initState() {
     super.initState();
     _initializeAnimations();
     _startEntryAnimation();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (reminderData == null) {
+      _loadReminderData();
+    }
+  }
+
+  void _loadReminderData() {
+    // Try to get reminder data from route arguments
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map<String, dynamic>) {
+      setState(() {
+        reminderData = args;
+      });
+    } else {
+      // If no data provided, show empty state or navigate back
+      setState(() {
+        reminderData = _getEmptyReminderData();
+      });
+    }
+  }
+
+  Map<String, dynamic> _getEmptyReminderData() {
+    return {
+      "id": 0,
+      "title": "No Reminder Found",
+      "category": "Unknown",
+      "description": "",
+      "frequency": {"type": "daily", "interval": 1},
+      "nextDue": DateTime.now().toIso8601String(),
+      "audioFile": null,
+      "createdAt": DateTime.now().toIso8601String(),
+      "isPaused": false,
+      "completedCount": 0,
+      "streak": 0,
+      "successRate": 0,
+      "completionHistory": <Map<String, dynamic>>[]
+    };
   }
 
   void _initializeAnimations() {
@@ -122,6 +119,26 @@ class _ReminderDetailState extends State<ReminderDetail>
 
   @override
   Widget build(BuildContext context) {
+    if (reminderData == null) {
+      return Scaffold(
+        backgroundColor: AppTheme.lightTheme.scaffoldBackgroundColor,
+        appBar: AppBar(
+          title: Text('Loading...'),
+          leading: IconButton(
+            onPressed: () => Navigator.pop(context),
+            icon: CustomIconWidget(
+              iconName: 'arrow_back_ios',
+              color: AppTheme.lightTheme.colorScheme.onSurface,
+              size: 6.w,
+            ),
+          ),
+        ),
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppTheme.lightTheme.scaffoldBackgroundColor,
       appBar: AppBar(
@@ -163,20 +180,20 @@ class _ReminderDetailState extends State<ReminderDetail>
               children: [
                 // Header with gradient background and stats
                 ReminderHeaderWidget(
-                  reminder: reminderData,
+                  reminder: reminderData!,
                   onEditPressed: _handleEdit,
                 ),
                 SizedBox(height: 4.h),
 
                 // Information cards
                 ReminderInfoCardsWidget(
-                  reminder: reminderData,
+                  reminder: reminderData!,
                 ),
                 SizedBox(height: 4.h),
 
                 // Audio preview
                 AudioPreviewWidget(
-                  audioFile: reminderData["audioFile"] as Map<String, dynamic>?,
+                  audioFile: reminderData!["audioFile"] as Map<String, dynamic>?,
                   onPlayPause: _handleAudioPlayPause,
                   onChangeAudio: _handleChangeAudio,
                 ),
@@ -184,14 +201,14 @@ class _ReminderDetailState extends State<ReminderDetail>
 
                 // Completion history
                 CompletionHistoryWidget(
-                  completionHistory: (reminderData["completionHistory"] as List)
+                  completionHistory: (reminderData!["completionHistory"] as List)
                       .cast<Map<String, dynamic>>(),
                 ),
                 SizedBox(height: 4.h),
 
                 // Action buttons
                 ActionButtonsWidget(
-                  reminder: reminderData,
+                  reminder: reminderData!,
                   onCompleteNow: _handleCompleteNow,
                   onEdit: _handleEdit,
                   onPauseResume: _handlePauseResume,
@@ -201,7 +218,7 @@ class _ReminderDetailState extends State<ReminderDetail>
 
                 // Quick actions
                 QuickActionsWidget(
-                  reminder: reminderData,
+                  reminder: reminderData!,
                   onDuplicate: _handleDuplicate,
                   onShare: _handleShare,
                   onResetProgress: _handleResetProgress,
@@ -282,6 +299,8 @@ class _ReminderDetailState extends State<ReminderDetail>
   }
 
   void _handleCompleteNow() {
+    if (reminderData == null) return;
+    
     HapticFeedback.lightImpact();
 
     // Show completion animation
@@ -321,7 +340,7 @@ class _ReminderDetailState extends State<ReminderDetail>
               ),
               SizedBox(height: 1.h),
               Text(
-                'Great job on completing "${reminderData["title"]}"',
+                'Great job on completing "${reminderData!["title"]}"',
                 style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
                   color: AppTheme.textSecondaryLight,
                 ),
@@ -346,15 +365,18 @@ class _ReminderDetailState extends State<ReminderDetail>
   }
 
   void _handleEdit() {
+    if (reminderData == null) return;
     Navigator.pushNamed(context, '/create-reminder', arguments: reminderData);
   }
 
   void _handlePauseResume() {
+    if (reminderData == null) return;
+    
     setState(() {
-      reminderData["isPaused"] = !(reminderData["isPaused"] as bool);
+      reminderData!["isPaused"] = !(reminderData!["isPaused"] as bool);
     });
 
-    final isPaused = reminderData["isPaused"] as bool;
+    final isPaused = reminderData!["isPaused"] as bool;
     Fluttertoast.showToast(
       msg: isPaused ? 'Reminder paused' : 'Reminder resumed',
       toastLength: Toast.LENGTH_SHORT,
@@ -372,8 +394,10 @@ class _ReminderDetailState extends State<ReminderDetail>
   }
 
   void _handleDuplicate() {
-    final duplicatedReminder = Map<String, dynamic>.from(reminderData);
-    duplicatedReminder["title"] = "${reminderData["title"]} (Copy)";
+    if (reminderData == null) return;
+    
+    final duplicatedReminder = Map<String, dynamic>.from(reminderData!);
+    duplicatedReminder["title"] = "${reminderData!["title"]} (Copy)";
     duplicatedReminder["id"] = DateTime.now().millisecondsSinceEpoch;
 
     Navigator.pushNamed(context, '/create-reminder',
@@ -381,12 +405,14 @@ class _ReminderDetailState extends State<ReminderDetail>
   }
 
   void _handleShare() {
+    if (reminderData == null) return;
+    
     final shareText = '''
-Good Deed Reminder: ${reminderData["title"]}
-Category: ${reminderData["category"]}
+Good Deed Reminder: ${reminderData!["title"]}
+Category: ${reminderData!["category"]}
 Frequency: ${_getFrequencyText()}
-Completed: ${reminderData["completedCount"]} times
-Success Rate: ${reminderData["successRate"]}%
+Completed: ${reminderData!["completedCount"]} times
+Success Rate: ${reminderData!["successRate"]}%
 
 Stay consistent with your good deeds! 🌟
 ''';
@@ -401,11 +427,13 @@ Stay consistent with your good deeds! 🌟
   }
 
   void _handleResetProgress() {
+    if (reminderData == null) return;
+    
     setState(() {
-      reminderData["completedCount"] = 0;
-      reminderData["streak"] = 0;
-      reminderData["successRate"] = 0;
-      reminderData["completionHistory"] = <Map<String, dynamic>>[];
+      reminderData!["completedCount"] = 0;
+      reminderData!["streak"] = 0;
+      reminderData!["successRate"] = 0;
+      reminderData!["completionHistory"] = <Map<String, dynamic>>[];
     });
 
     Fluttertoast.showToast(
@@ -453,7 +481,9 @@ Stay consistent with your good deeds! 🌟
   }
 
   String _getFrequencyText() {
-    final frequency = reminderData["frequency"] as Map<String, dynamic>;
+    if (reminderData == null) return 'Unknown';
+    
+    final frequency = reminderData!["frequency"] as Map<String, dynamic>;
     final type = frequency["type"] as String;
     final interval = frequency["interval"] as int;
 

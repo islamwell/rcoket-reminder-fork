@@ -90,8 +90,8 @@ class _CustomBottomBarState extends State<CustomBottomBar>
         ),
         child: SafeArea(
           child: Container(
-            height: 80,
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            height: 76,
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: _buildNavigationItems(context),
@@ -102,14 +102,14 @@ class _CustomBottomBarState extends State<CustomBottomBar>
     );
   }
 
-  /// Builds the navigation items with Islamic-themed icons and routes
+  /// Builds the navigation items with consistent icons and routes
   List<Widget> _buildNavigationItems(BuildContext context) {
     final items = [
       _NavigationItem(
-        icon: Icons.add_circle_outline_rounded,
-        activeIcon: Icons.add_circle_rounded,
-        label: 'Create',
-        route: '/create-reminder',
+        icon: Icons.home_outlined,
+        activeIcon: Icons.home_rounded,
+        label: 'Home',
+        route: '/dashboard',
         index: 0,
       ),
       _NavigationItem(
@@ -152,7 +152,7 @@ class _CustomBottomBarState extends State<CustomBottomBar>
         child: AnimatedContainer(
           duration: Duration(milliseconds: 200),
           curve: Curves.easeInOut,
-          padding: EdgeInsets.symmetric(vertical: 8),
+          padding: EdgeInsets.symmetric(vertical: 4),
           decoration: BoxDecoration(
             color: isSelected
                 ? theme.colorScheme.primary.withValues(alpha: 0.1)
@@ -170,11 +170,11 @@ class _CustomBottomBarState extends State<CustomBottomBar>
                   color: isSelected
                       ? theme.colorScheme.primary
                       : theme.colorScheme.onSurfaceVariant,
-                  size: 24,
+                  size: 22,
                 ),
               ),
               if (widget.showLabels) ...[
-                SizedBox(height: 4),
+                SizedBox(height: 2),
                 AnimatedDefaultTextStyle(
                   duration: Duration(milliseconds: 200),
                   style: GoogleFonts.inter(

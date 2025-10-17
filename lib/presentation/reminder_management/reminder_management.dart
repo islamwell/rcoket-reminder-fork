@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:sizer/sizer.dart';
 
 import '../../core/app_export.dart';
-import './widgets/reminder_section_widget.dart';
-import './widgets/search_filter_widget.dart';
+import '../../widgets/custom_bottom_bar.dart';
+import '../create_reminder/create_reminder.dart';
+import '../common/widgets/notification_status_banner.dart';
+import 'widgets/countdown_display_widget.dart';
 
 class ReminderManagement extends StatefulWidget {
   const ReminderManagement({super.key});
@@ -12,839 +14,750 @@ class ReminderManagement extends StatefulWidget {
   State<ReminderManagement> createState() => _ReminderManagementState();
 }
 
-class _ReminderManagementState extends State<ReminderManagement>
-    with TickerProviderStateMixin {
-  late TabController _tabController;
-  final GlobalKey<RefreshIndicatorState> _refreshIndicatorKey =
-      GlobalKey<RefreshIndicatorState>();
+class _ReminderManagementState extends State<ReminderManagement> {
+  final TextEditingController _searchController = TextEditingController();
 
-  // Search and filter state
+  // Simple state management
   String _searchQuery = '';
-  List<String> _selectedCategories = [];
-  List<String> _selectedStatuses = [];
-  List<String> _selectedFrequencies = [];
-
-  // Section expansion state
   bool _isActiveExpanded = true;
-  bool _isPausedExpanded = false;
+  bool _isPausedExpanded = true;
   bool _isCompletedExpanded = false;
 
-  // Multi-select state
-  bool _isMultiSelectMode = false;
-  Set<int> _selectedReminderIds = {};
-
-  // Mock data for reminders
-  final List<Map<String, dynamic>> _allReminders = [
-    {
-      "id": 1,
-      "title": "Call Mom",
-      "category": "family",
-      "frequency": "daily",
-      "status": "active",
-      "nextOccurrence": "Today at 7:00 PM",
-      "audioFile": "family_reminder.mp3",
-      "createdAt": DateTime.now().subtract(Duration(days: 5)),
-      "completionCount": 12,
-      "description": "Remember to call mom and check how she's doing",
-    },
-    {
-      "id": 2,
-      "title": "Give Charity",
-      "category": "charity",
-      "frequency": "weekly",
-      "status": "active",
-      "nextOccurrence": "Friday at 2:00 PM",
-      "audioFile": "charity_reminder.mp3",
-      "createdAt": DateTime.now().subtract(Duration(days: 10)),
-      "completionCount": 3,
-      "description": "Weekly charity donation to help those in need",
-    },
-    {
-      "id": 3,
-      "title": "Morning Exercise",
-      "category": "health",
-      "frequency": "daily",
-      "status": "paused",
-      "nextOccurrence": "Paused",
-      "audioFile": null,
-      "createdAt": DateTime.now().subtract(Duration(days: 15)),
-      "completionCount": 8,
-      "description": "30 minutes of morning exercise routine",
-    },
-    {
-      "id": 4,
-      "title": "Read Quran",
-      "category": "spiritual",
-      "frequency": "daily",
-      "status": "active",
-      "nextOccurrence": "Tomorrow at 6:00 AM",
-      "audioFile": "quran_reminder.mp3",
-      "createdAt": DateTime.now().subtract(Duration(days: 20)),
-      "completionCount": 18,
-      "description": "Daily Quran reading and reflection",
-    },
-    {
-      "id": 5,
-      "title": "Computer Break",
-      "category": "health",
-      "frequency": "hourly",
-      "status": "active",
-      "nextOccurrence": "In 45 minutes",
-      "audioFile": "break_reminder.mp3",
-      "createdAt": DateTime.now().subtract(Duration(days: 3)),
-      "completionCount": 25,
-      "description": "Take a 5-minute break from computer work",
-    },
-    {
-      "id": 6,
-      "title": "Team Meeting Prep",
-      "category": "work",
-      "frequency": "weekly",
-      "status": "completed",
-      "nextOccurrence": "Completed",
-      "audioFile": null,
-      "createdAt": DateTime.now().subtract(Duration(days: 7)),
-      "completionCount": 1,
-      "description": "Prepare agenda and materials for weekly team meeting",
-    },
-    {
-      "id": 7,
-      "title": "Gratitude Journal",
-      "category": "personal",
-      "frequency": "daily",
-      "status": "paused",
-      "nextOccurrence": "Paused",
-      "audioFile": "gratitude_reminder.mp3",
-      "createdAt": DateTime.now().subtract(Duration(days: 12)),
-      "completionCount": 5,
-      "description": "Write three things I'm grateful for today",
-    },
-    {
-      "id": 8,
-      "title": "Dhikr After Salah",
-      "category": "spiritual",
-      "frequency": "daily",
-      "status": "completed",
-      "nextOccurrence": "Completed",
-      "audioFile": "dhikr_reminder.mp3",
-      "createdAt": DateTime.now().subtract(Duration(days: 30)),
-      "completionCount": 25,
-      "description": "Remember Allah through dhikr after each prayer",
-    },
-  ];
+  // Reminders data
+  List<Map<String, dynamic>> _allReminders = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _loadReminders();
+    _initializeNotificationService();
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
-  List<Map<String, dynamic>> get _filteredReminders {
-    return _allReminders.where((reminder) {
-      // Search filter
-      if (_searchQuery.isNotEmpty) {
-        final query = _searchQuery.toLowerCase();
-        final title = (reminder["title"] as String).toLowerCase();
-        final category = (reminder["category"] as String).toLowerCase();
-        final description = (reminder["description"] as String).toLowerCase();
+  Future<void> _loadReminders() async {
+    if (!mounted) return;
 
-        if (!title.contains(query) &&
-            !category.contains(query) &&
-            !description.contains(query)) {
-          return false;
+    setState(() => _isLoading = true);
+
+    try {
+      final reminders = await ReminderStorageService.instance.getReminders();
+
+      if (!mounted) return;
+
+      setState(() {
+        _allReminders = reminders;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading reminders: $e')),
+        );
+      }
+    }
+  }
+
+
+
+
+
+
+
+  Future<void> _initializeNotificationService() async {
+    try {
+      await NotificationService.instance.initialize(context);
+      print('Notification service initialized successfully');
+
+      // Set up a timer to refresh the reminder list periodically
+      Timer.periodic(Duration(seconds: 30), (timer) {
+        if (mounted) {
+          _loadReminders();
+        } else {
+          timer.cancel();
         }
-      }
+      });
+    } catch (e) {
+      print('Error initializing notification service: $e');
+    }
+  }
 
-      // Category filter
-      if (_selectedCategories.isNotEmpty &&
-          !_selectedCategories.contains(reminder["category"])) {
-        return false;
-      }
+  List<Map<String, dynamic>> get _filteredReminders {
+    if (_searchQuery.isEmpty) {
+      return _allReminders;
+    }
 
-      // Status filter
-      if (_selectedStatuses.isNotEmpty &&
-          !_selectedStatuses.contains(reminder["status"])) {
-        return false;
-      }
+    final query = _searchQuery.toLowerCase();
+    return _allReminders.where((reminder) {
+      final title = (reminder["title"] as String? ?? "").toLowerCase();
+      final category = (reminder["category"] as String? ?? "").toLowerCase();
+      final description =
+          (reminder["description"] as String? ?? "").toLowerCase();
 
-      // Frequency filter
-      if (_selectedFrequencies.isNotEmpty &&
-          !_selectedFrequencies.contains(reminder["frequency"])) {
-        return false;
-      }
-
-      return true;
+      return title.contains(query) ||
+          category.contains(query) ||
+          description.contains(query);
     }).toList();
   }
 
   List<Map<String, dynamic>> get _activeReminders {
-    return _filteredReminders
-        .where((r) => (r["status"] as String) == "active")
+    final activeList = _filteredReminders
+        .where((r) => (r["status"] as String? ?? "active") == "active")
         .toList();
+    
+    // Sort by most recent first (by creation date)
+    activeList.sort((a, b) {
+      final aCreated = DateTime.tryParse(a['createdAt'] ?? '') ?? DateTime.now();
+      final bCreated = DateTime.tryParse(b['createdAt'] ?? '') ?? DateTime.now();
+      return bCreated.compareTo(aCreated); // Most recent first
+    });
+    
+    return activeList;
   }
 
   List<Map<String, dynamic>> get _pausedReminders {
-    return _filteredReminders
-        .where((r) => (r["status"] as String) == "paused")
+    final pausedList = _filteredReminders
+        .where((r) => (r["status"] as String? ?? "active") == "paused")
         .toList();
+    
+    // Sort by most recent first (by creation date)
+    pausedList.sort((a, b) {
+      final aCreated = DateTime.tryParse(a['createdAt'] ?? '') ?? DateTime.now();
+      final bCreated = DateTime.tryParse(b['createdAt'] ?? '') ?? DateTime.now();
+      return bCreated.compareTo(aCreated); // Most recent first
+    });
+    
+    return pausedList;
+  }
+
+  List<Map<String, dynamic>> get _snoozedReminders {
+    final snoozedList = _filteredReminders
+        .where((r) => (r["status"] as String? ?? "active") == "snoozed")
+        .toList();
+    
+    // Sort by most recent first (by snooze date, then creation date)
+    snoozedList.sort((a, b) {
+      final aSnoozed = DateTime.tryParse(a['snoozedAt'] ?? '') ?? 
+                      DateTime.tryParse(a['createdAt'] ?? '') ?? DateTime.now();
+      final bSnoozed = DateTime.tryParse(b['snoozedAt'] ?? '') ?? 
+                      DateTime.tryParse(b['createdAt'] ?? '') ?? DateTime.now();
+      return bSnoozed.compareTo(aSnoozed); // Most recent first
+    });
+    
+    return snoozedList;
   }
 
   List<Map<String, dynamic>> get _completedReminders {
-    return _filteredReminders
-        .where((r) => (r["status"] as String) == "completed")
+    final completedList = _filteredReminders
+        .where((r) => (r["status"] as String? ?? "active") == "completed")
         .toList();
+    
+    // Sort by most recent first (by completion date, then creation date)
+    completedList.sort((a, b) {
+      final aCompleted = DateTime.tryParse(a['completedAt'] ?? a['lastCompleted'] ?? '') ?? 
+                        DateTime.tryParse(a['createdAt'] ?? '') ?? DateTime.now();
+      final bCompleted = DateTime.tryParse(b['completedAt'] ?? b['lastCompleted'] ?? '') ?? 
+                        DateTime.tryParse(b['createdAt'] ?? '') ?? DateTime.now();
+      return bCompleted.compareTo(aCompleted); // Most recent first
+    });
+    
+    return completedList;
   }
 
   int get _activeReminderCount {
     return _allReminders
-        .where((r) => (r["status"] as String) == "active")
+        .where((r) => (r["status"] as String? ?? "active") == "active")
         .length;
+  }
+
+  Future<void> _handleRefresh() async {
+    await _loadReminders();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: _buildAppBar(context),
-      body: RefreshIndicator(
-        key: _refreshIndicatorKey,
-        onRefresh: _handleRefresh,
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(
-              child: SearchFilterWidget(
-                searchQuery: _searchQuery,
-                selectedCategories: _selectedCategories,
-                selectedStatuses: _selectedStatuses,
-                selectedFrequencies: _selectedFrequencies,
-                onSearchChanged: (query) =>
-                    setState(() => _searchQuery = query),
-                onCategoriesChanged: (categories) =>
-                    setState(() => _selectedCategories = categories),
-                onStatusesChanged: (statuses) =>
-                    setState(() => _selectedStatuses = statuses),
-                onFrequenciesChanged: (frequencies) =>
-                    setState(() => _selectedFrequencies = frequencies),
-                onClearAll: _clearAllFilters,
-              ),
-            ),
-            if (_isMultiSelectMode) ...[
-              SliverToBoxAdapter(child: _buildMultiSelectActions(context)),
-            ],
-            SliverList(
-              delegate: SliverChildListDelegate([
-                ReminderSectionWidget(
-                  title: 'Active',
-                  reminders: _activeReminders,
-                  isExpanded: _isActiveExpanded,
-                  onToggleExpanded: () =>
-                      setState(() => _isActiveExpanded = !_isActiveExpanded),
-                  onReminderTap: _handleReminderTap,
-                  onReminderToggle: _handleReminderToggle,
-                  onReminderEdit: _handleReminderEdit,
-                  onReminderDuplicate: _handleReminderDuplicate,
-                  onReminderShare: _handleReminderShare,
-                  onReminderPause: _handleReminderPause,
-                  onReminderDelete: _handleReminderDelete,
-                  onReminderViewHistory: _handleReminderViewHistory,
-                  onReminderChangeAudio: _handleReminderChangeAudio,
-                  onReminderResetProgress: _handleReminderResetProgress,
-                ),
-                SizedBox(height: 1.h),
-                ReminderSectionWidget(
-                  title: 'Paused',
-                  reminders: _pausedReminders,
-                  isExpanded: _isPausedExpanded,
-                  onToggleExpanded: () =>
-                      setState(() => _isPausedExpanded = !_isPausedExpanded),
-                  onReminderTap: _handleReminderTap,
-                  onReminderToggle: _handleReminderToggle,
-                  onReminderEdit: _handleReminderEdit,
-                  onReminderDuplicate: _handleReminderDuplicate,
-                  onReminderShare: _handleReminderShare,
-                  onReminderPause: _handleReminderPause,
-                  onReminderDelete: _handleReminderDelete,
-                  onReminderViewHistory: _handleReminderViewHistory,
-                  onReminderChangeAudio: _handleReminderChangeAudio,
-                  onReminderResetProgress: _handleReminderResetProgress,
-                ),
-                SizedBox(height: 1.h),
-                ReminderSectionWidget(
-                  title: 'Completed',
-                  reminders: _completedReminders,
-                  isExpanded: _isCompletedExpanded,
-                  onToggleExpanded: () => setState(
-                      () => _isCompletedExpanded = !_isCompletedExpanded),
-                  onReminderTap: _handleReminderTap,
-                  onReminderToggle: _handleReminderToggle,
-                  onReminderEdit: _handleReminderEdit,
-                  onReminderDuplicate: _handleReminderDuplicate,
-                  onReminderShare: _handleReminderShare,
-                  onReminderPause: _handleReminderPause,
-                  onReminderDelete: _handleReminderDelete,
-                  onReminderViewHistory: _handleReminderViewHistory,
-                  onReminderChangeAudio: _handleReminderChangeAudio,
-                  onReminderResetProgress: _handleReminderResetProgress,
-                ),
-                SizedBox(height: 10.h), // Bottom padding for navigation
-              ]),
-            ),
-          ],
+      appBar: AppBar(
+        title: Text(
+          'Reminders',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[900],
+          ),
         ),
-      ),
-      floatingActionButton: _buildFloatingActionButton(context),
-      bottomNavigationBar: _buildBottomNavigationBar(context),
-    );
-  }
-
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return AppBar(
-      title: Text(
-        _isMultiSelectMode
-            ? '${_selectedReminderIds.length} selected'
-            : 'Reminders',
-        style: theme.textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      centerTitle: !_isMultiSelectMode,
-      leading: _isMultiSelectMode
-          ? IconButton(
-              onPressed: _exitMultiSelectMode,
-              icon: CustomIconWidget(
-                iconName: 'close',
-                color: theme.colorScheme.onSurface,
-                size: 24,
-              ),
-            )
-          : null,
-      actions: _isMultiSelectMode
-          ? [
-              IconButton(
-                onPressed:
-                    _selectedReminderIds.length == _filteredReminders.length
-                        ? _deselectAllReminders
-                        : _selectAllReminders,
-                icon: CustomIconWidget(
-                  iconName:
-                      _selectedReminderIds.length == _filteredReminders.length
-                          ? 'deselect'
-                          : 'select_all',
-                  color: theme.colorScheme.onSurface,
-                  size: 24,
-                ),
-                tooltip:
-                    _selectedReminderIds.length == _filteredReminders.length
-                        ? 'Deselect All'
-                        : 'Select All',
-              ),
-            ]
-          : [
-              IconButton(
-                onPressed: () =>
-                    Navigator.pushNamed(context, '/create-reminder'),
-                icon: CustomIconWidget(
-                  iconName: 'add',
-                  color: theme.colorScheme.onSurface,
-                  size: 24,
-                ),
-                tooltip: 'Add Reminder',
-              ),
-              PopupMenuButton<String>(
-                onSelected: _handleMenuAction,
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: 'sort',
-                    child: Row(
-                      children: [
-                        CustomIconWidget(
-                          iconName: 'sort',
-                          color: theme.colorScheme.onSurface,
-                          size: 16,
-                        ),
-                        SizedBox(width: 3.w),
-                        Text('Sort'),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'export',
-                    child: Row(
-                      children: [
-                        CustomIconWidget(
-                          iconName: 'download',
-                          color: theme.colorScheme.onSurface,
-                          size: 16,
-                        ),
-                        SizedBox(width: 3.w),
-                        Text('Export'),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'settings',
-                    child: Row(
-                      children: [
-                        CustomIconWidget(
-                          iconName: 'settings',
-                          color: theme.colorScheme.onSurface,
-                          size: 16,
-                        ),
-                        SizedBox(width: 3.w),
-                        Text('Settings'),
-                      ],
-                    ),
-                  ),
-                ],
-                icon: CustomIconWidget(
-                  iconName: 'more_vert',
-                  color: theme.colorScheme.onSurface,
-                  size: 24,
+        backgroundColor: Colors.white,
+        elevation: 1,
+        actions: [
+          IconButton(
+            onPressed: () => Navigator.pushNamed(context, '/create-reminder'),
+            icon: Icon(Icons.add, color: Colors.grey[800]),
+          ),
+          PopupMenuButton<String>(
+            onSelected: _handleMenuAction,
+            icon: Icon(Icons.more_vert, color: Colors.grey[800]),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings, size: 20, color: Colors.grey[800]),
+                    SizedBox(width: 12),
+                    Text('Settings', style: TextStyle(color: Colors.grey[800])),
+                  ],
                 ),
               ),
             ],
-      backgroundColor: theme.colorScheme.surface,
-      elevation: 2,
-      shadowColor: theme.colorScheme.shadow.withValues(alpha: 0.1),
-    );
-  }
-
-  Widget _buildMultiSelectActions(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
-      padding: EdgeInsets.all(4.w),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primaryContainer,
-            theme.colorScheme.primaryContainer.withValues(alpha: 0.8),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(AppTheme.mediumRadius),
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.shadow.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: Offset(0, 2),
           ),
         ],
       ),
-      child: Row(
+      body: Column(
         children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed:
-                  _selectedReminderIds.isNotEmpty ? _bulkPauseReminders : null,
-              icon: CustomIconWidget(
-                iconName: 'pause',
-                color: theme.colorScheme.onPrimary,
-                size: 16,
-              ),
-              label: Text('Pause'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.warningLight,
-              ),
-            ),
-          ),
-          SizedBox(width: 3.w),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: _selectedReminderIds.isNotEmpty
-                  ? _bulkActivateReminders
-                  : null,
-              icon: CustomIconWidget(
-                iconName: 'play_arrow',
-                color: theme.colorScheme.onPrimary,
-                size: 16,
-              ),
-              label: Text('Activate'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.successLight,
-              ),
-            ),
-          ),
-          SizedBox(width: 3.w),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed:
-                  _selectedReminderIds.isNotEmpty ? _bulkDeleteReminders : null,
-              icon: CustomIconWidget(
-                iconName: 'delete',
-                color: theme.colorScheme.onPrimary,
-                size: 16,
-              ),
-              label: Text('Delete'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.errorLight,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFloatingActionButton(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return FloatingActionButton.extended(
-      onPressed: () => Navigator.pushNamed(context, '/create-reminder'),
-      icon: CustomIconWidget(
-        iconName: 'add',
-        color: theme.colorScheme.onPrimary,
-        size: 24,
-      ),
-      label: Text(
-        'New Reminder',
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.onPrimary,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      backgroundColor: theme.colorScheme.primary,
-      elevation: 4,
-    );
-  }
-
-  Widget _buildBottomNavigationBar(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.surface,
-            theme.colorScheme.surface.withValues(alpha: 0.95),
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.shadow.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Container(
-          height: 80,
-          padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 2.h),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildBottomNavItem(
-                context,
-                'add_circle_outline',
-                'add_circle',
-                'Create',
-                '/create-reminder',
-                0,
-              ),
-              _buildBottomNavItem(
-                context,
-                'library_music_outlined',
-                'library_music',
-                'Audio',
-                '/audio-library',
-                1,
-              ),
-              _buildBottomNavItem(
-                context,
-                'notifications_outlined',
-                'notifications',
-                'Reminders',
-                '/reminder-management',
-                2,
-                badge: _activeReminderCount > 0
-                    ? _activeReminderCount.toString()
+          NotificationStatusBanner(),
+          // Search bar
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (query) => setState(() => _searchQuery = query),
+              decoration: InputDecoration(
+                hintText: 'Search reminders...',
+                hintStyle: TextStyle(color: Colors.grey[600]),
+                prefixIcon: Icon(Icons.search, color: Colors.grey[700]),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                        icon: Icon(Icons.clear, color: Colors.grey[700]),
+                      )
                     : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.grey[300]!),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: AppTheme.lightTheme.colorScheme.primary),
+                ),
               ),
-              _buildBottomNavItem(
-                context,
-                'celebration_outlined',
-                'celebration',
-                'Progress',
-                '/completion-celebration',
-                3,
+              style: TextStyle(color: Colors.grey[900]),
+            ),
+          ),
+          // Content
+          Expanded(
+            child: _isLoading
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text(
+                          'Loading reminders...',
+                          style: TextStyle(color: Colors.grey[800]),
+                        ),
+                      ],
+                    ),
+                  )
+                : _allReminders.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.notifications_none, size: 64, color: Colors.grey[600]),
+                            SizedBox(height: 16),
+                            Text(
+                              'No reminders yet',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey[800],
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Create your first reminder to get started',
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+
+                          ],
+                        ),
+                      )
+                    : ListView(
+                        padding: EdgeInsets.only(bottom: 20),
+                        children: [
+                          if (_activeReminders.isNotEmpty)
+                            _buildSimpleSection('Active', _activeReminders, Colors.green),
+                          if (_pausedReminders.isNotEmpty)
+                            _buildSimpleSection('Paused', _pausedReminders, Colors.orange),
+                          if (_snoozedReminders.isNotEmpty)
+                            _buildSimpleSection('Snoozed', _snoozedReminders, Colors.purple),
+                          if (_completedReminders.isNotEmpty)
+                            _buildSimpleSection('Completed', _completedReminders, Colors.blue),
+                        ],
+                      ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: _buildBottomNavigationBar(),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.pushNamed(context, '/create-reminder'),
+        child: Icon(Icons.add),
+        backgroundColor: AppTheme.lightTheme.colorScheme.primary,
+      ),
+    );
+  }
+
+  Widget _buildSimpleSection(String title, List<Map<String, dynamic>> reminders, Color color) {
+    return Card(
+      margin: EdgeInsets.all(8),
+      elevation: 4,
+      shadowColor: Colors.black.withOpacity(0.3),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: title == 'Active',
+        title: Text(
+          '$title (${reminders.length})',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[900],
+            fontSize: 16,
+          ),
+        ),
+        leading: Container(
+          padding: EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            title == 'Active' ? Icons.play_circle : 
+            title == 'Paused' ? Icons.pause_circle : 
+            title == 'Snoozed' ? Icons.snooze : Icons.check_circle,
+            color: color,
+            size: 24,
+          ),
+        ),
+        children: reminders.asMap().entries.map((entry) {
+          final index = entry.key;
+          final reminder = entry.value;
+          final isEven = index % 2 == 0;
+          
+          return Container(
+            decoration: BoxDecoration(
+              color: isEven 
+                ? Colors.grey[50] 
+                : Colors.white,
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.grey[200]!,
+                  width: 0.5,
+                ),
+              ),
+            ),
+            child: ListTile(
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              title: Text(
+                reminder['title'] ?? 'Unknown',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[900],
+                  fontSize: 16,
+                ),
+              ),
+              subtitle: Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: color.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: color.withOpacity(0.3)),
+                          ),
+                          child: Text(
+                            reminder['category'] ?? 'Unknown',
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                          ),
+                          child: Text(
+                            _getFrequencyDisplayText(reminder['frequency']),
+                            style: TextStyle(
+                              color: Colors.blue[700],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.schedule,
+                          size: 16,
+                          color: color,
+                        ),
+                        SizedBox(width: 4),
+                        CountdownDisplayWidget(
+                          reminder: reminder,
+                          textStyle: TextStyle(
+                            color: color,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              trailing: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: PopupMenuButton(
+                  icon: Icon(Icons.more_vert, color: Colors.grey[700]),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  elevation: 4,
+            itemBuilder: (context) => [
+              // Manual completion option for active reminders
+              if (reminder['status'] == 'active')
+                PopupMenuItem(
+                  value: 'complete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green[700]),
+                      SizedBox(width: 8),
+                      Text('Mark Complete', style: TextStyle(color: Colors.green[700])),
+                    ],
+                  ),
+                ),
+              PopupMenuItem(
+                value: 'toggle',
+                child: Row(
+                  children: [
+                    Icon(
+                      reminder['status'] == 'active' ? Icons.pause : Icons.play_arrow,
+                      color: Colors.grey[800],
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      reminder['status'] == 'active' ? 'Pause' : 'Activate',
+                      style: TextStyle(color: Colors.grey[800]),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit, color: Colors.grey[800]),
+                    SizedBox(width: 8),
+                    Text('Edit', style: TextStyle(color: Colors.grey[800])),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete, color: Colors.red[700]),
+                    SizedBox(width: 8),
+                    Text('Delete', style: TextStyle(color: Colors.red[700])),
+                  ],
+                ),
               ),
             ],
-          ),
-        ),
+                  onSelected: (value) => _handleReminderAction(value as String, reminder),
+                ),
+              ),
+              onTap: () => _showReminderDetails(reminder),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
 
-  Widget _buildBottomNavItem(
-    BuildContext context,
-    String icon,
-    String activeIcon,
-    String label,
-    String route,
-    int index, {
-    String? badge,
-  }) {
-    final theme = Theme.of(context);
-    final isSelected = route == '/reminder-management';
+  Widget _buildBottomNavigationBar() {
+    return CustomBottomBar(
+      currentIndex: 2, // Reminders is index 2
+      onTap: (index) {
+        // Handle navigation based on index
+        switch (index) {
+          case 0:
+            Navigator.pushReplacementNamed(context, '/dashboard');
+            break;
+          case 1:
+            Navigator.pushReplacementNamed(context, '/audio-library');
+            break;
+          case 2:
+            // Already on reminders, do nothing
+            break;
+          case 3:
+            Navigator.pushReplacementNamed(context, '/completion-celebration');
+            break;
+        }
+      },
+    );
+  }
 
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          if (route != '/reminder-management') {
-            Navigator.pushReplacementNamed(context, route);
-          }
-        },
+  void _handleMenuAction(String action) async {
+    switch (action) {
+      case 'settings':
+        Navigator.pushNamed(context, '/settings');
+        break;
+    }
+  }
+
+  void _handleReminderAction(String action, Map<String, dynamic> reminder) async {
+    switch (action) {
+      case 'complete':
+        try {
+          final id = reminder['id']; // Don't cast - can be int or string
+          await ReminderStorageService.instance.completeReminderManually(id);
+          await _loadReminders();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Reminder marked as completed!'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error completing reminder: $e')),
+          );
+        }
+        break;
+      case 'toggle':
+        try {
+          final id = reminder['id']; // Don't cast - can be int or string
+          await ReminderStorageService.instance.toggleReminderStatus(id);
+          await _loadReminders();
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error toggling reminder: $e')),
+          );
+        }
+        break;
+      case 'edit':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CreateReminder(reminderToEdit: reminder),
+          ),
+        ).then((_) => _loadReminders());
+        break;
+      case 'delete':
+        _showDeleteDialog(reminder);
+        break;
+    }
+  }
+
+  void _showReminderDetails(Map<String, dynamic> reminder) {
+    final status = reminder['status'] as String? ?? 'active';
+    final statusColor = status == 'active' ? Colors.green : 
+                       status == 'paused' ? Colors.orange : 
+                       status == 'snoozed' ? Colors.purple : Colors.blue;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        elevation: 8,
         child: Container(
-          padding: EdgeInsets.symmetric(vertical: 1.h),
+          padding: EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: isSelected
-                ? theme.colorScheme.primary.withValues(alpha: 0.1)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppTheme.mediumRadius),
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                Colors.grey[50]!,
+              ],
+            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Stack(
-                clipBehavior: Clip.none,
+              // Header with title and status
+              Row(
                 children: [
-                  CustomIconWidget(
-                    iconName: isSelected ? activeIcon : icon,
-                    color: isSelected
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurfaceVariant,
-                    size: 24,
-                  ),
-                  if (badge != null)
-                    Positioned(
-                      right: -8,
-                      top: -8,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(
-                            horizontal: 1.5.w, vertical: 0.3.h),
-                        decoration: BoxDecoration(
-                          color: AppTheme.errorLight,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        constraints:
-                            BoxConstraints(minWidth: 20, minHeight: 20),
-                        child: Text(
-                          badge,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 10,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
+                  Expanded(
+                    child: Text(
+                      reminder['title'] ?? 'Reminder',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[900],
                       ),
                     ),
+                  ),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: statusColor.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          status == 'active' ? Icons.play_circle : 
+                          status == 'paused' ? Icons.pause_circle : 
+                          status == 'snoozed' ? Icons.snooze : Icons.check_circle,
+                          color: statusColor,
+                          size: 16,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          status.toUpperCase(),
+                          style: TextStyle(
+                            color: statusColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
-              SizedBox(height: 0.5.h),
-              Text(
-                label,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: isSelected
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Event handlers
-  Future<void> _handleRefresh() async {
-    await Future.delayed(Duration(seconds: 1));
-    setState(() {
-      // Simulate refreshing reminder schedules
-    });
-  }
-
-  void _clearAllFilters() {
-    setState(() {
-      _searchQuery = '';
-      _selectedCategories.clear();
-      _selectedStatuses.clear();
-      _selectedFrequencies.clear();
-    });
-  }
-
-  void _handleReminderTap(Map<String, dynamic> reminder) {
-    if (_isMultiSelectMode) {
-      _toggleReminderSelection(reminder["id"] as int);
-    } else {
-      Navigator.pushNamed(
-        context,
-        '/reminder-detail',
-        arguments: reminder,
-      );
-    }
-  }
-
-  void _handleReminderToggle(Map<String, dynamic> reminder) {
-    setState(() {
-      final currentStatus = reminder["status"] as String;
-      reminder["status"] = currentStatus == "active" ? "paused" : "active";
-      if (reminder["status"] == "active") {
-        reminder["nextOccurrence"] = "In 1 hour"; // Mock next occurrence
-      } else {
-        reminder["nextOccurrence"] = "Paused";
-      }
-    });
-  }
-
-  void _handleReminderEdit(Map<String, dynamic> reminder) {
-    Navigator.pushNamed(
-      context,
-      '/create-reminder',
-      arguments: {'editMode': true, 'reminder': reminder},
-    );
-  }
-
-  void _handleReminderDuplicate(Map<String, dynamic> reminder) {
-    setState(() {
-      final newReminder = Map<String, dynamic>.from(reminder);
-      newReminder["id"] = _allReminders.length + 1;
-      newReminder["title"] = "${reminder["title"]} (Copy)";
-      newReminder["createdAt"] = DateTime.now();
-      newReminder["completionCount"] = 0;
-      _allReminders.add(newReminder);
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Reminder duplicated successfully'),
-        backgroundColor: AppTheme.successLight,
-      ),
-    );
-  }
-
-  void _handleReminderShare(Map<String, dynamic> reminder) {
-    final shareText = '''
-Good Deeds Reminder: ${reminder["title"]}
-Category: ${reminder["category"]}
-Frequency: ${reminder["frequency"]}
-Description: ${reminder["description"]}
-
-Shared from Good Deeds Reminder App
-''';
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Reminder shared successfully'),
-        backgroundColor: AppTheme.successLight,
-      ),
-    );
-  }
-
-  void _handleReminderPause(Map<String, dynamic> reminder) {
-    setState(() {
-      reminder["status"] = reminder["status"] == "paused" ? "active" : "paused";
-      reminder["nextOccurrence"] =
-          reminder["status"] == "paused" ? "Paused" : "In 1 hour";
-    });
-  }
-
-  void _handleReminderDelete(Map<String, dynamic> reminder) {
-    setState(() {
-      _allReminders.removeWhere((r) => r["id"] == reminder["id"]);
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Reminder deleted'),
-        backgroundColor: AppTheme.errorLight,
-        action: SnackBarAction(
-          label: 'Undo',
-          onPressed: () {
-            setState(() {
-              _allReminders.add(reminder);
-            });
-          },
-        ),
-      ),
-    );
-  }
-
-  void _handleReminderViewHistory(Map<String, dynamic> reminder) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        maxChildSize: 0.9,
-        minChildSize: 0.4,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Theme.of(context).colorScheme.surface,
-                Theme.of(context).colorScheme.surface.withValues(alpha: 0.95),
-              ],
-            ),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
+              
+              SizedBox(height: 20),
+              
+              // Details section
               Container(
-                margin: EdgeInsets.symmetric(vertical: 2.h),
-                width: 12.w,
-                height: 0.5.h,
+                padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurfaceVariant
-                      .withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(2),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.1),
+                      spreadRadius: 1,
+                      blurRadius: 4,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    _buildElegantDetailRow(
+                      Icons.category, 
+                      'Category', 
+                      reminder['category'] ?? 'Unknown',
+                      Colors.blue,
+                    ),
+                    _buildElegantDetailRow(
+                      Icons.repeat, 
+                      'Frequency', 
+                      _getFrequencyDisplayText(reminder['frequency']),
+                      Colors.purple,
+                    ),
+                    _buildElegantDetailRow(
+                      Icons.schedule, 
+                      'Next Occurrence', 
+                      reminder['nextOccurrence'] ?? 'Unknown',
+                      statusColor,
+                    ),
+                    _buildElegantDetailRow(
+                      Icons.calendar_today, 
+                      'Date Created', 
+                      _formatCreationDate(reminder['createdAt']),
+                      Colors.grey[600]!,
+                    ),
+                    if (reminder['description'] != null && (reminder['description'] as String).isNotEmpty)
+                      _buildElegantDetailRow(
+                        Icons.description, 
+                        'Description', 
+                        reminder['description'] as String,
+                        Colors.grey[700]!,
+                      ),
+                  ],
                 ),
               ),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 6.w),
-                child: Text(
-                  'Completion History',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              
+              SizedBox(height: 24),
+              
+              // Action buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (status == 'active')
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _handleReminderAction('complete', reminder);
+                      },
+                      icon: Icon(Icons.check_circle, color: Colors.green),
+                      label: Text(
+                        'Mark Complete',
+                        style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  SizedBox(width: 8),
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _handleReminderAction('edit', reminder);
+                    },
+                    icon: Icon(Icons.edit, color: Colors.blue),
+                    label: Text(
+                      'Edit',
+                      style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(
+                      'Close',
+                      style: TextStyle(
+                        color: Colors.grey[600],
                         fontWeight: FontWeight.w600,
                       ),
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  padding: EdgeInsets.all(6.w),
-                  itemCount: reminder["completionCount"] as int,
-                  itemBuilder: (context, index) {
-                    final date = DateTime.now().subtract(Duration(days: index));
-                    return ListTile(
-                      leading: CustomIconWidget(
-                        iconName: 'check_circle',
-                        color: AppTheme.successLight,
-                        size: 24,
-                      ),
-                      title: Text('Completed'),
-                      subtitle: Text('${date.day}/${date.month}/${date.year}'),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -853,238 +766,190 @@ Shared from Good Deeds Reminder App
     );
   }
 
-  void _handleReminderChangeAudio(Map<String, dynamic> reminder) {
-    Navigator.pushNamed(context, '/audio-library');
-  }
-
-  void _handleReminderResetProgress(Map<String, dynamic> reminder) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Reset Progress'),
-        content: Text(
-            'Are you sure you want to reset the completion progress for "${reminder["title"]}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
+  Widget _buildElegantDetailRow(IconData icon, String label, String value, Color color) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 20),
           ),
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                reminder["completionCount"] = 0;
-              });
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Progress reset successfully'),
-                  backgroundColor: AppTheme.successLight,
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[600],
+                    letterSpacing: 0.5,
+                  ),
                 ),
-              );
-            },
-            child: Text('Reset'),
+                SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[800],
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  void _handleMenuAction(String action) {
-    switch (action) {
-      case 'sort':
-        _showSortOptions();
-        break;
-      case 'export':
-        _exportReminders();
-        break;
-      case 'settings':
-        _showSettings();
-        break;
+  String _formatCreationDate(String? createdAt) {
+    if (createdAt == null) return 'Unknown';
+    
+    try {
+      final date = DateTime.parse(createdAt);
+      final now = DateTime.now();
+      final difference = now.difference(date);
+      
+      if (difference.inDays == 0) {
+        return 'Today at ${_formatTime(date)}';
+      } else if (difference.inDays == 1) {
+        return 'Yesterday at ${_formatTime(date)}';
+      } else if (difference.inDays < 7) {
+        return '${difference.inDays} days ago';
+      } else {
+        return '${date.day}/${date.month}/${date.year}';
+      }
+    } catch (e) {
+      return 'Unknown';
     }
   }
 
-  void _showSortOptions() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        padding: EdgeInsets.all(6.w),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Sort Reminders',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-            SizedBox(height: 2.h),
-            ListTile(
-              leading: CustomIconWidget(
-                iconName: 'schedule',
-                color: Theme.of(context).colorScheme.primary,
-                size: 24,
-              ),
-              title: Text('By Next Occurrence'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: CustomIconWidget(
-                iconName: 'date_range',
-                color: Theme.of(context).colorScheme.primary,
-                size: 24,
-              ),
-              title: Text('By Date Created'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: CustomIconWidget(
-                iconName: 'abc',
-                color: Theme.of(context).colorScheme.primary,
-                size: 24,
-              ),
-              title: Text('Alphabetically'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: CustomIconWidget(
-                iconName: 'trending_up',
-                color: Theme.of(context).colorScheme.primary,
-                size: 24,
-              ),
-              title: Text('By Completion Count'),
-              onTap: () => Navigator.pop(context),
-            ),
-          ],
-        ),
-      ),
-    );
+  String _formatTime(DateTime dateTime) {
+    final hour = dateTime.hour;
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+    return '$displayHour:$minute $period';
   }
 
-  void _exportReminders() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Reminders exported successfully'),
-        backgroundColor: AppTheme.successLight,
-      ),
-    );
-  }
-
-  void _showSettings() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Settings feature coming soon'),
-        backgroundColor: AppTheme.warningLight,
-      ),
-    );
-  }
-
-  // Multi-select methods
-  void _toggleReminderSelection(int reminderId) {
-    setState(() {
-      if (_selectedReminderIds.contains(reminderId)) {
-        _selectedReminderIds.remove(reminderId);
-        if (_selectedReminderIds.isEmpty) {
-          _isMultiSelectMode = false;
+  String _getFrequencyDisplayText(Map<String, dynamic>? frequency) {
+    if (frequency == null) return 'Unknown frequency';
+    
+    // Handle both 'type' and 'id' fields for backward compatibility
+    final type = (frequency['type'] ?? frequency['id']) as String?;
+    switch (type) {
+      case 'daily':
+        return 'Daily';
+      case 'weekly':
+        final selectedDays = frequency['selectedDays'] as List<dynamic>?;
+        if (selectedDays == null || selectedDays.isEmpty) {
+          return 'Weekly';
         }
-      } else {
-        _selectedReminderIds.add(reminderId);
-        _isMultiSelectMode = true;
-      }
-    });
-  }
-
-  void _exitMultiSelectMode() {
-    setState(() {
-      _isMultiSelectMode = false;
-      _selectedReminderIds.clear();
-    });
-  }
-
-  void _selectAllReminders() {
-    setState(() {
-      _selectedReminderIds =
-          _filteredReminders.map((r) => r["id"] as int).toSet();
-    });
-  }
-
-  void _deselectAllReminders() {
-    setState(() {
-      _selectedReminderIds.clear();
-    });
-  }
-
-  void _bulkPauseReminders() {
-    setState(() {
-      for (final reminder in _allReminders) {
-        if (_selectedReminderIds.contains(reminder["id"])) {
-          reminder["status"] = "paused";
-          reminder["nextOccurrence"] = "Paused";
+        final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        final dayStrings = selectedDays.map((day) {
+          final dayIndex = (day as int) - 1; // Convert 1-7 to 0-6
+          return dayIndex >= 0 && dayIndex < 7 ? dayNames[dayIndex] : 'Unknown';
+        }).toList();
+        return 'Weekly (${dayStrings.join(', ')})';
+      case 'hourly':
+        return 'Hourly';
+      case 'monthly':
+        final dayOfMonth = frequency['dayOfMonth'] as int?;
+        return dayOfMonth != null ? 'Monthly (${dayOfMonth}th)' : 'Monthly';
+      case 'once':
+        return 'One-time';
+      case 'custom':
+        final interval = frequency['interval'] ?? frequency['intervalValue'];
+        final unit = frequency['unit'] ?? frequency['intervalUnit'];
+        if (interval != null && unit != null) {
+          return 'Every $interval $unit';
         }
-      }
-    });
-    _exitMultiSelectMode();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${_selectedReminderIds.length} reminders paused'),
-        backgroundColor: AppTheme.warningLight,
+        return 'Custom';
+      case 'test':
+        return 'Test reminder';
+      default:
+        return 'Custom frequency';
+    }
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 70,
+            child: Text(
+              '$label:',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[800],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  void _bulkActivateReminders() {
-    setState(() {
-      for (final reminder in _allReminders) {
-        if (_selectedReminderIds.contains(reminder["id"])) {
-          reminder["status"] = "active";
-          reminder["nextOccurrence"] = "In 1 hour";
-        }
-      }
-    });
-    _exitMultiSelectMode();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${_selectedReminderIds.length} reminders activated'),
-        backgroundColor: AppTheme.successLight,
-      ),
-    );
-  }
-
-  void _bulkDeleteReminders() {
+  void _showDeleteDialog(Map<String, dynamic> reminder) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete Reminders'),
+        title: Text(
+          'Delete Reminder',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[900],
+          ),
+        ),
         content: Text(
-            'Are you sure you want to delete ${_selectedReminderIds.length} selected reminders?'),
+          'Are you sure you want to delete "${reminder['title']}"?',
+          style: TextStyle(color: Colors.grey[700]),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('Cancel'),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
           ),
           ElevatedButton(
-            onPressed: () {
-              setState(() {
-                _allReminders
-                    .removeWhere((r) => _selectedReminderIds.contains(r["id"]));
-              });
-              _exitMultiSelectMode();
+            onPressed: () async {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content:
-                      Text('${_selectedReminderIds.length} reminders deleted'),
-                  backgroundColor: AppTheme.errorLight,
-                ),
-              );
+              try {
+                final id = reminder['id']; // Don't cast - can be int or string
+                await ReminderStorageService.instance.deleteReminder(id);
+                await _loadReminders();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Reminder deleted')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error deleting reminder: $e')),
+                );
+              }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.errorLight,
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
             ),
             child: Text('Delete'),
           ),

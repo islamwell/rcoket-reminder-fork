@@ -2,13 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../core/app_export.dart';
+import '../../core/models/reminder_template.dart';
+import '../../core/services/template_service.dart';
 import './widgets/audio_selection_widget.dart';
 import './widgets/category_selection_widget.dart';
 import './widgets/frequency_selection_widget.dart';
 import './widgets/time_selection_widget.dart';
+import './widgets/quick_template_icon_widget.dart';
+import './widgets/template_selection_dialog.dart';
+import '../common/widgets/schedule_confirmation_dialog.dart';
 
 class CreateReminder extends StatefulWidget {
-  const CreateReminder({super.key});
+  final Map<String, dynamic>? reminderToEdit;
+  
+  const CreateReminder({super.key, this.reminderToEdit});
 
   @override
   State<CreateReminder> createState() => _CreateReminderState();
@@ -19,14 +26,24 @@ class _CreateReminderState extends State<CreateReminder> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _scrollController = ScrollController();
+  final _titleFocusNode = FocusNode();
 
-  String? _selectedCategory;
-  Map<String, dynamic>? _selectedFrequency;
+  String? _selectedCategory = 'charity'; // Default to charity
+  Map<String, dynamic>? _selectedFrequency = {'id': 'daily', 'title': 'Daily'}; // Default to daily
   TimeOfDay? _selectedTime;
-  Map<String, dynamic>? _selectedAudio;
+  Map<String, dynamic>? _selectedAudio = {
+    'id': 'default_gentle_reminder',
+    'name': 'Gentle Reminder',
+    'duration': '0:15',
+    'type': 'default',
+    'description': 'Default gentle reminder sound',
+    'path': 'assets/audio/gentle_reminder.mp3',
+  };
   bool _isAdvancedExpanded = false;
   bool _enableNotifications = true;
   int _repeatLimit = 0; // 0 means infinite
+  bool _isEditMode = false;
+  int? _editingReminderId;
 
   bool get _isFormValid {
     return _titleController.text.trim().isNotEmpty &&
@@ -36,10 +53,54 @@ class _CreateReminderState extends State<CreateReminder> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _initializeForm();
+  }
+
+  void _initializeForm() {
+    if (widget.reminderToEdit != null) {
+      // Edit mode - populate form with existing reminder data
+      _isEditMode = true;
+      final reminder = widget.reminderToEdit!;
+      _editingReminderId = reminder['id'] as int?;
+      
+      _titleController.text = reminder['title'] as String? ?? 'remind me';
+      _descriptionController.text = reminder['description'] as String? ?? '';
+      _selectedCategory = reminder['category'] as String?;
+      _selectedFrequency = reminder['frequency'] as Map<String, dynamic>?;
+      _selectedAudio = reminder['selectedAudio'] as Map<String, dynamic>?;
+      _enableNotifications = reminder['enableNotifications'] as bool? ?? true;
+      _repeatLimit = reminder['repeatLimit'] as int? ?? 0;
+      
+      // Parse time
+      final timeString = reminder['time'] as String?;
+      if (timeString != null) {
+        final timeParts = timeString.split(':');
+        if (timeParts.length == 2) {
+          final hour = int.tryParse(timeParts[0]) ?? 0;
+          final minute = int.tryParse(timeParts[1]) ?? 0;
+          _selectedTime = TimeOfDay(hour: hour, minute: minute);
+        }
+      }
+    } else {
+      // Create mode - set default values with random good deed
+      final randomGoodDeed = TemplateService.getRandomGoodDeed();
+      _titleController.text = randomGoodDeed.title;
+      
+      // Set default time to current time + 1 minute
+      final now = DateTime.now();
+      final defaultTime = now.add(Duration(minutes: 1));
+      _selectedTime = TimeOfDay(hour: defaultTime.hour, minute: defaultTime.minute);
+    }
+  }
+
+  @override
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
     _scrollController.dispose();
+    _titleFocusNode.dispose();
     super.dispose();
   }
 
@@ -122,7 +183,7 @@ class _CreateReminderState extends State<CreateReminder> {
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => Navigator.pop(context),
+            onTap: () => Navigator.pushReplacementNamed(context, '/dashboard'),
             child: Container(
               padding: EdgeInsets.all(2.w),
               decoration: BoxDecoration(
@@ -142,7 +203,7 @@ class _CreateReminderState extends State<CreateReminder> {
           ),
           Expanded(
             child: Text(
-              'Create Reminder',
+              _isEditMode ? 'Edit Reminder' : 'Create Reminder',
               style: AppTheme.lightTheme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
@@ -162,7 +223,7 @@ class _CreateReminderState extends State<CreateReminder> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                'Save',
+                _isEditMode ? 'Update' : 'Save',
                 style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
                   color: _isFormValid
                       ? AppTheme.lightTheme.colorScheme.onPrimary
@@ -190,9 +251,14 @@ class _CreateReminderState extends State<CreateReminder> {
         SizedBox(height: 2.h),
         TextFormField(
           controller: _titleController,
+          focusNode: _titleFocusNode,
           decoration: InputDecoration(
             hintText: 'e.g., Call my mother, Read Quran, Exercise',
             counterText: '${_titleController.text.length}/50',
+            suffixIcon: QuickTemplateIconWidget(
+              onTap: _showTemplateDialog,
+              isEnabled: true,
+            ),
           ),
           maxLength: 50,
           textInputAction: TextInputAction.next,
@@ -405,12 +471,145 @@ class _CreateReminderState extends State<CreateReminder> {
     );
   }
 
-  void _saveReminder() {
+  Future<void> _saveReminder() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
-    // Show success animation
+    try {
+      // Show loading
+      _showLoadingDialog();
+
+      // Format time
+      final timeString = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}';
+
+      Map<String, dynamic>? savedReminder;
+
+      if (_isEditMode && _editingReminderId != null) {
+        // Update existing reminder - this will automatically reschedule background notifications
+        await ReminderStorageService.instance.updateReminder(_editingReminderId!, {
+          'title': _titleController.text.trim(),
+          'category': _selectedCategory!,
+          'frequency': _selectedFrequency!,
+          'time': timeString,
+          'description': _descriptionController.text.trim(),
+          'selectedAudio': _selectedAudio,
+          'enableNotifications': _enableNotifications,
+          'repeatLimit': _repeatLimit,
+        });
+        
+        // Get the updated reminder for display
+        savedReminder = await ReminderStorageService.instance.getReminderById(_editingReminderId!);
+        
+        if (savedReminder != null) {
+          print('CreateReminder: Updated reminder ${_editingReminderId} with background scheduling integration');
+        }
+      } else {
+        // Create new reminder with schedule confirmation - this will automatically schedule background notifications
+        print('CreateReminder: About to save reminder with confirmation...');
+        savedReminder = await ReminderStorageService.instance.saveReminderWithConfirmation(
+          title: _titleController.text.trim(),
+          category: _selectedCategory!,
+          frequency: _selectedFrequency!,
+          time: timeString,
+          description: _descriptionController.text.trim(),
+          selectedAudio: _selectedAudio,
+          enableNotifications: _enableNotifications,
+          repeatLimit: _repeatLimit,
+          onScheduleConflict: (originalTime, adjustedTime) async {
+            // Close loading dialog first
+            Navigator.pop(context);
+            
+            // Show conflict resolution dialog
+            final shouldAccept = await ScheduleConfirmationDialog.showTimeConflictResolution(
+              context,
+              originalTime,
+              adjustedTime,
+            );
+            
+            if (shouldAccept == true) {
+              // User accepted the adjustment, save with the adjusted time
+              _showLoadingDialog();
+              final fallbackReminder = await ReminderStorageService.instance.saveReminder(
+                title: _titleController.text.trim(),
+                category: _selectedCategory!,
+                frequency: _selectedFrequency!,
+                time: timeString,
+                description: _descriptionController.text.trim(),
+                selectedAudio: _selectedAudio,
+                enableNotifications: _enableNotifications,
+                repeatLimit: _repeatLimit,
+              );
+              Navigator.pop(context); // Close loading dialog
+              _showSuccessDialog(fallbackReminder);
+            } else {
+              // User cancelled, don't save
+              return;
+            }
+          },
+          onScheduleConfirmation: (scheduledTime) async {
+            // Show confirmation for the scheduled time
+            final shouldConfirm = await ScheduleConfirmationDialog.showScheduleConfirmation(
+              context,
+              scheduledTime,
+            );
+            
+            if (shouldConfirm != true) {
+              // User cancelled confirmation
+              Navigator.pop(context); // Close loading dialog
+              return;
+            }
+          },
+        );
+        
+        // If savedReminder is null, it means user cancelled during conflict resolution
+        if (savedReminder == null) {
+          return;
+        }
+        
+        if (savedReminder != null) {
+          print('CreateReminder: Created new reminder ${savedReminder['id']} with background scheduling integration');
+          print('CreateReminder: Saved reminder data: $savedReminder');
+        }
+      }
+
+      // Close loading dialog
+      Navigator.pop(context);
+
+      // Show success dialog if reminder was saved
+      if (savedReminder != null) {
+        _showSuccessDialog(savedReminder);
+      }
+    } catch (e) {
+      // Close loading dialog if open
+      Navigator.pop(context);
+      
+      // Show error with background scheduling context
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_isEditMode 
+            ? 'Failed to update reminder and reschedule background notifications: ${e.toString()}'
+            : 'Failed to create reminder and schedule background notifications: ${e.toString()}'),
+          backgroundColor: AppTheme.errorLight,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
+  /// Shows loading dialog
+  void _showLoadingDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+
+  /// Shows success dialog after reminder is saved
+  void _showSuccessDialog(Map<String, dynamic> savedReminder) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -434,18 +633,47 @@ class _CreateReminderState extends State<CreateReminder> {
             ),
             SizedBox(height: 3.h),
             Text(
-              'Reminder Created!',
+              _isEditMode ? 'Reminder Updated!' : 'Reminder Created!',
               style: AppTheme.lightTheme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
             ),
             SizedBox(height: 1.h),
             Text(
-              'Your good deed reminder has been set up successfully. May Allah bless your efforts.',
+              _isEditMode 
+                ? 'Your reminder has been updated successfully with schedule confirmation.'
+                : 'Your good deed reminder has been set up successfully with schedule confirmation.',
               style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
                 color: AppTheme.lightTheme.colorScheme.onSurfaceVariant,
               ),
               textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 2.h),
+            Container(
+              padding: EdgeInsets.all(3.w),
+              decoration: BoxDecoration(
+                color: AppTheme.lightTheme.colorScheme.primaryContainer
+                    .withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    'Next reminder:',
+                    style: AppTheme.lightTheme.textTheme.bodySmall?.copyWith(
+                      color: AppTheme.lightTheme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  SizedBox(height: 0.5.h),
+                  Text(
+                    savedReminder['nextOccurrence'] as String? ?? 'Unknown',
+                    style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.lightTheme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -463,5 +691,139 @@ class _CreateReminderState extends State<CreateReminder> {
         ],
       ),
     );
+  }
+
+  /// Shows the template selection dialog
+  Future<void> _showTemplateDialog() async {
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext context) {
+          return TemplateSelectionDialog(
+            currentText: _titleController.text.trim(),
+            onTemplateSelected: _handleTemplateSelection,
+          );
+        },
+      );
+    } catch (e) {
+      // Handle any errors in showing the dialog
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load templates: ${e.toString()}'),
+          backgroundColor: AppTheme.errorLight,
+        ),
+      );
+    }
+  }
+
+  /// Handles template selection from the dialog
+  Future<void> _handleTemplateSelection(ReminderTemplate template) async {
+    // Handle clear template - clear title and focus on input
+    if (template.id == 'clear') {
+      setState(() {
+        _titleController.clear();
+      });
+      
+      // Focus on the title field and show keyboard
+      _titleFocusNode.requestFocus();
+      return;
+    }
+
+    // If custom template is selected, just close dialog and let user type
+    if (template.isCustom) {
+      return;
+    }
+
+    // Apply the selected template without confirmation
+    setState(() {
+      _titleController.text = template.title;
+    });
+
+    // Show brief feedback
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Template applied: ${template.title}'),
+        duration: Duration(seconds: 2),
+        backgroundColor: AppTheme.lightTheme.colorScheme.primary,
+      ),
+    );
+  }
+
+  /// Shows confirmation dialog when replacing existing text
+  Future<bool> _showReplaceTextConfirmation(String currentText, String templateText) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Replace existing text?',
+            style: AppTheme.lightTheme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'You have existing text in the title field:',
+                style: AppTheme.lightTheme.textTheme.bodyMedium,
+              ),
+              SizedBox(height: 1.h),
+              Container(
+                padding: EdgeInsets.all(2.w),
+                decoration: BoxDecoration(
+                  color: AppTheme.lightTheme.colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '"$currentText"',
+                  style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+              SizedBox(height: 2.h),
+              Text(
+                'Replace it with the selected template:',
+                style: AppTheme.lightTheme.textTheme.bodyMedium,
+              ),
+              SizedBox(height: 1.h),
+              Container(
+                padding: EdgeInsets.all(2.w),
+                decoration: BoxDecoration(
+                  color: AppTheme.lightTheme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '"$templateText"',
+                  style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.lightTheme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: AppTheme.lightTheme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text('Replace'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result ?? false;
   }
 }

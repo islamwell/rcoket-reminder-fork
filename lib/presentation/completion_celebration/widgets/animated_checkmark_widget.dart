@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../../core/app_export.dart';
+import '../../../core/utils/animation_performance_utils.dart';
 
 class AnimatedCheckmarkWidget extends StatefulWidget {
   final VoidCallback? onAnimationComplete;
@@ -28,30 +29,37 @@ class _AnimatedCheckmarkWidgetState extends State<AnimatedCheckmarkWidget>
   void initState() {
     super.initState();
 
-    _scaleController = AnimationController(
-      duration: Duration(milliseconds: 600),
-      vsync: this,
-    );
+    // Initialize performance utilities
+    AnimationPerformanceUtils.initialize();
 
-    _rotationController = AnimationController(
+    // Create optimized animation controllers using performance utilities
+    _scaleController = AnimationPerformanceUtils.createOptimizedController(
       duration: Duration(milliseconds: 400),
       vsync: this,
+      debugLabel: 'CheckmarkScale',
     );
 
+    _rotationController = AnimationPerformanceUtils.createOptimizedController(
+      duration: Duration(milliseconds: 300),
+      vsync: this,
+      debugLabel: 'CheckmarkRotation',
+    );
+
+    // Create performance-optimized animations with smoother curves
     _scaleAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
-    ).animate(CurvedAnimation(
+    ).animate(AnimationPerformanceUtils.createOptimizedCurvedAnimation(
       parent: _scaleController,
-      curve: Curves.elasticOut,
+      curve: Curves.easeOutBack,
     ));
 
     _rotationAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
-    ).animate(CurvedAnimation(
+    ).animate(AnimationPerformanceUtils.createOptimizedCurvedAnimation(
       parent: _rotationController,
-      curve: Curves.easeInOut,
+      curve: Curves.easeOut,
     ));
 
     _startAnimation();
@@ -73,55 +81,62 @@ class _AnimatedCheckmarkWidgetState extends State<AnimatedCheckmarkWidget>
 
   @override
   void dispose() {
-    _scaleController.dispose();
-    _rotationController.dispose();
+    // Use performance utilities for safe disposal
+    AnimationPerformanceUtils.safeDisposeControllers([
+      _scaleController,
+      _rotationController,
+    ]);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([_scaleAnimation, _rotationAnimation]),
-      builder: (context, child) {
-        return Transform.scale(
-          scale: _scaleAnimation.value,
-          child: Transform.rotate(
-            angle: _rotationAnimation.value * 0.5,
-            child: Container(
-              width: 25.w,
-              height: 25.w,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppTheme.lightTheme.colorScheme.primary,
-                    AppTheme.lightTheme.colorScheme.primary
-                        .withValues(alpha: 0.8),
+    return Semantics(
+      label: 'Completion checkmark',
+      hint: 'Visual confirmation of your successful completion',
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_scaleAnimation, _rotationAnimation]),
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Transform.rotate(
+              angle: _rotationAnimation.value * 0.5,
+              child: Container(
+                width: 25.w,
+                height: 25.w,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppTheme.lightTheme.colorScheme.primary,
+                      AppTheme.lightTheme.colorScheme.primary
+                          .withValues(alpha: 0.8),
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.lightTheme.colorScheme.primary
+                          .withValues(alpha: 0.3),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                      offset: Offset(0, 8),
+                    ),
                   ],
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.lightTheme.colorScheme.primary
-                        .withValues(alpha: 0.3),
-                    blurRadius: 20,
-                    spreadRadius: 5,
-                    offset: Offset(0, 8),
+                child: Center(
+                  child: CustomIconWidget(
+                    iconName: 'check',
+                    color: Colors.white,
+                    size: 8.w,
                   ),
-                ],
-              ),
-              child: Center(
-                child: CustomIconWidget(
-                  iconName: 'check',
-                  color: Colors.white,
-                  size: 8.w,
                 ),
               ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

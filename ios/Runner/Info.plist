@@ -48,5 +48,16 @@
         <key>NSAllowsArbitraryLoads</key>
         <true />
     </dict>
+    
+    <!-- Background modes for notifications and background processing -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>background-processing</string>
+        <string>background-fetch</string>
+    </array>
+    
+    <!-- Permission descriptions for notifications -->
+    <key>NSUserNotificationAlertStyle</key>
+    <string>alert</string>
 </dict>
 </plist>

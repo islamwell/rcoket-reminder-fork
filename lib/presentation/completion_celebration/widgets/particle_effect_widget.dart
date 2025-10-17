@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../../core/app_export.dart';
+import '../../../core/utils/animation_performance_utils.dart';
 import '../../../theme/app_theme.dart';
 
 class ParticleEffectWidget extends StatefulWidget {
@@ -17,14 +18,21 @@ class _ParticleEffectWidgetState extends State<ParticleEffectWidget>
     with TickerProviderStateMixin {
   late AnimationController _animationController;
   late List<Particle> _particles;
+  late int _particleCount;
 
   @override
   void initState() {
     super.initState();
 
-    _animationController = AnimationController(
-      duration: Duration(seconds: 3),
+    // Initialize performance utilities and get optimized particle count
+    AnimationPerformanceUtils.initialize();
+    _particleCount = AnimationPerformanceUtils.getOptimizedParticleCount(12);
+
+    // Create optimized animation controller
+    _animationController = AnimationPerformanceUtils.createOptimizedController(
+      duration: Duration(seconds: 2),
       vsync: this,
+      debugLabel: 'ParticleEffect',
     );
 
     _initializeParticles();
@@ -32,13 +40,14 @@ class _ParticleEffectWidgetState extends State<ParticleEffectWidget>
   }
 
   void _initializeParticles() {
-    _particles = List.generate(20, (index) {
+    // Performance-optimized particle initialization with dynamic count
+    _particles = List.generate(_particleCount, (index) {
       return Particle(
         x: 50.w,
         y: 50.h,
-        vx: (math.Random().nextDouble() - 0.5) * 4,
-        vy: (math.Random().nextDouble() - 0.5) * 4,
-        size: math.Random().nextDouble() * 4 + 2,
+        vx: (math.Random().nextDouble() - 0.5) * 2.5, // Further reduced velocity for smoother animation
+        vy: (math.Random().nextDouble() - 0.5) * 2.5,
+        size: math.Random().nextDouble() * 2.5 + 1.0, // Optimized particle size for better performance
         color: index % 2 == 0
             ? AppTheme.lightTheme.colorScheme.primary
             : AppTheme.accentLight,
@@ -49,7 +58,8 @@ class _ParticleEffectWidgetState extends State<ParticleEffectWidget>
 
   @override
   void dispose() {
-    _animationController.dispose();
+    // Use performance utilities for safe disposal
+    AnimationPerformanceUtils.safeDisposeController(_animationController);
     super.dispose();
   }
 
@@ -68,17 +78,18 @@ class _ParticleEffectWidgetState extends State<ParticleEffectWidget>
   }
 
   void _updateParticles() {
+    // Optimized particle update with reduced calculations
     for (var particle in _particles) {
       particle.x += particle.vx;
       particle.y += particle.vy;
-      particle.life -= 0.02;
+      particle.life -= 0.015; // Slightly slower decay for smoother animation
 
       if (particle.life <= 0) {
-        // Reset particle
+        // Reset particle with optimized random generation
         particle.x = 50.w;
         particle.y = 50.h;
-        particle.vx = (math.Random().nextDouble() - 0.5) * 4;
-        particle.vy = (math.Random().nextDouble() - 0.5) * 4;
+        particle.vx = (math.Random().nextDouble() - 0.5) * 3;
+        particle.vy = (math.Random().nextDouble() - 0.5) * 3;
         particle.life = 1.0;
       }
     }

@@ -108,7 +108,7 @@ class AppTheme {
       iconTheme: IconThemeData(color: textPrimaryLight),
       actionsIconTheme: IconThemeData(color: textPrimaryLight),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: cardLight,
       elevation: 2.0,
       shadowColor: shadowLight,
@@ -271,7 +271,7 @@ class AppTheme {
       inactiveTrackColor: primaryLight.withValues(alpha: 0.3),
       trackHeight: 4.0,
     ),
-    tabBarTheme: TabBarTheme(
+    tabBarTheme: TabBarThemeData(
       labelColor: primaryLight,
       unselectedLabelColor: textSecondaryLight,
       indicatorColor: primaryLight,
@@ -366,7 +366,7 @@ class AppTheme {
       iconTheme: IconThemeData(color: textPrimaryDark),
       actionsIconTheme: IconThemeData(color: textPrimaryDark),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: cardDark,
       elevation: 2.0,
       shadowColor: shadowDark,
@@ -529,7 +529,7 @@ class AppTheme {
       inactiveTrackColor: primaryDark.withValues(alpha: 0.3),
       trackHeight: 4.0,
     ),
-    tabBarTheme: TabBarTheme(
+    tabBarTheme: TabBarThemeData(
       labelColor: primaryDark,
       unselectedLabelColor: textSecondaryDark,
       indicatorColor: primaryDark,
@@ -689,6 +689,10 @@ class AppTheme {
   static const Color audioBlue = Color(0xFF2196F3);
   static const Color prayerTimeAmber = warningLight;
 
+  /// Dark green gradient colors for dashboard
+  static const Color darkGreenStart = Color(0xFF1B4332);
+  static const Color darkGreenEnd = Color(0xFF2D5A3D);
+
   /// Animation durations following meaningful motion language (200-300ms)
   static const Duration shortAnimation = Duration(milliseconds: 200);
   static const Duration mediumAnimation = Duration(milliseconds: 250);
@@ -704,4 +708,32 @@ class AppTheme {
   static const double lowElevation = 1.0;
   static const double mediumElevation = 2.0;
   static const double highElevation = 4.0;
+
+  /// Enhanced shadow configurations for darker, more prominent shadows
+  static const BoxShadow darkShadowSmall = BoxShadow(
+    color: Color(0x26000000), // 15% black opacity
+    blurRadius: 12.0,
+    offset: Offset(0, 6),
+    spreadRadius: 1.0,
+  );
+
+  static const BoxShadow darkShadowMedium = BoxShadow(
+    color: Color(0x33000000), // 20% black opacity
+    blurRadius: 16.0,
+    offset: Offset(0, 8),
+    spreadRadius: 2.0,
+  );
+
+  static const BoxShadow darkShadowLarge = BoxShadow(
+    color: Color(0x40000000), // 25% black opacity
+    blurRadius: 20.0,
+    offset: Offset(0, 10),
+    spreadRadius: 3.0,
+  );
+
+  /// Enhanced shadow lists for different UI components
+  static const List<BoxShadow> containerShadows = [darkShadowMedium];
+  static const List<BoxShadow> cardShadows = [darkShadowSmall];
+  static const List<BoxShadow> buttonShadows = [darkShadowSmall];
+  static const List<BoxShadow> prominentShadows = [darkShadowLarge];
 }

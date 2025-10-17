@@ -169,6 +169,11 @@ class _FrequencySelectionWidgetState extends State<FrequencySelectionWidget> {
         }
 
         widget.onFrequencySelected(frequency);
+        
+        // Close the selection dropdown after selecting an option (except custom which needs the interval selector)
+        if (option['id'] != 'custom') {
+          setState(() => _isExpanded = false);
+        }
       },
       child: Container(
         margin: EdgeInsets.only(bottom: 2.h),
