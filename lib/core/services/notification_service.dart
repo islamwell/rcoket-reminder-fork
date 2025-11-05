@@ -49,7 +49,7 @@ class NotificationService {
         try {
           // Initialize timezone data
           tz.initializeTimeZones();
-          
+
           // Android initialization settings
           const AndroidInitializationSettings initializationSettingsAndroid =
               AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -75,6 +75,9 @@ class NotificationService {
             onDidReceiveNotificationResponse: _onNotificationTapped,
           );
 
+          // Create notification channel with proper settings for fullscreen notifications
+          await _createNotificationChannel();
+
           // Request permissions with error handling
           final permissionsGranted = await requestPermissions();
           if (!permissionsGranted) {
@@ -83,8 +86,11 @@ class NotificationService {
               _context,
             );
           }
-          
+
           print('DEBUG: Native notifications initialized successfully');
+          print('DEBUG: ✓ Notification channel created with MAX importance');
+          print('DEBUG: ✓ Full screen intent enabled');
+          print('DEBUG: ✓ Permissions requested: $permissionsGranted');
         } catch (e) {
           await ErrorHandlingService.instance.logError(
             'NOTIFICATION_INIT_ERROR',
@@ -92,23 +98,55 @@ class NotificationService {
             severity: ErrorSeverity.error,
             stackTrace: StackTrace.current,
           );
-          
+
           _nativeNotificationsEnabled = false;
-          
+
           // Enable fallback mode if initialization fails repeatedly
           if (!ErrorHandlingService.instance.isInFallbackMode) {
             await ErrorHandlingService.instance.setFallbackMode(
-              true, 
+              true,
               reason: 'Native notification initialization failed'
             );
           }
-          
+
           rethrow;
         }
       },
       maxAttempts: 2,
       delay: Duration(seconds: 1),
     );
+  }
+
+  // Create notification channel with proper settings
+  Future<void> _createNotificationChannel() async {
+    if (Platform.isAndroid) {
+      try {
+        const AndroidNotificationChannel channel = AndroidNotificationChannel(
+          'reminder_channel',
+          'Reminders',
+          description: 'Notifications for scheduled reminders',
+          importance: Importance.max,
+          playSound: true,
+          enableVibration: true,
+          showBadge: true,
+          enableLights: true,
+        );
+
+        await _flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+            ?.createNotificationChannel(channel);
+
+        print('DEBUG: Notification channel created successfully');
+      } catch (e) {
+        print('ERROR: Failed to create notification channel: $e');
+        await ErrorHandlingService.instance.logError(
+          'CHANNEL_CREATION_ERROR',
+          'Failed to create notification channel: $e',
+          severity: ErrorSeverity.warning,
+          stackTrace: StackTrace.current,
+        );
+      }
+    }
   }
 
   // Handle notification tap
@@ -437,17 +475,23 @@ class NotificationService {
           
           final payload = notificationPayload.toJson();
 
-          // Android notification details
+          // Android notification details with fullscreen intent
           const AndroidNotificationDetails androidPlatformChannelSpecifics =
               AndroidNotificationDetails(
             'reminder_channel',
             'Reminders',
             channelDescription: 'Notifications for scheduled reminders',
-            importance: Importance.high,
-            priority: Priority.high,
+            importance: Importance.max,
+            priority: Priority.max,
             showWhen: true,
             enableVibration: true,
             playSound: true,
+            fullScreenIntent: true,
+            category: AndroidNotificationCategory.alarm,
+            visibility: NotificationVisibility.public,
+            channelShowBadge: true,
+            autoCancel: false,
+            ongoing: true,
           );
 
           // iOS notification details
@@ -485,7 +529,7 @@ class NotificationService {
                 uiLocalNotificationDateInterpretation:
                     UILocalNotificationDateInterpretation.absoluteTime,
               );
-              
+
               await ErrorHandlingService.instance.logError(
                 'NOTIFICATION_SCHEDULED',
                 'Successfully scheduled notification for reminder $reminderId',
@@ -495,8 +539,13 @@ class NotificationService {
                   'scheduledTime': scheduledTZDate.toIso8601String(),
                 },
               );
-              
-              print('DEBUG: Scheduled native notification for reminder $reminderId at $scheduledTZDate');
+
+              print('DEBUG: ✓ Scheduled FULLSCREEN notification for reminder $reminderId');
+              print('DEBUG:   - Scheduled time: $scheduledTZDate');
+              print('DEBUG:   - Importance: MAX');
+              print('DEBUG:   - Priority: MAX');
+              print('DEBUG:   - Full screen intent: ENABLED');
+              print('DEBUG:   - Category: ALARM');
             } else {
               await ErrorHandlingService.instance.logError(
                 'NOTIFICATION_PAST_DATE',
@@ -799,17 +848,23 @@ class NotificationService {
       
       final payload = notificationPayload.toJson();
 
-      // Android notification details
+      // Android notification details with fullscreen intent
       const AndroidNotificationDetails androidPlatformChannelSpecifics =
           AndroidNotificationDetails(
         'reminder_channel',
         'Reminders',
         channelDescription: 'Notifications for scheduled reminders',
-        importance: Importance.high,
-        priority: Priority.high,
+        importance: Importance.max,
+        priority: Priority.max,
         showWhen: true,
         enableVibration: true,
         playSound: true,
+        fullScreenIntent: true,
+        category: AndroidNotificationCategory.alarm,
+        visibility: NotificationVisibility.public,
+        channelShowBadge: true,
+        autoCancel: false,
+        ongoing: true,
       );
 
       // iOS notification details
