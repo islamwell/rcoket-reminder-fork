@@ -127,10 +127,10 @@ class _CustomBottomBarState extends State<CustomBottomBar>
         index: 2,
       ),
       _NavigationItem(
-        icon: Icons.celebration_outlined,
-        activeIcon: Icons.celebration_rounded,
+        icon: Icons.insights_outlined,
+        activeIcon: Icons.insights_rounded,
         label: 'Progress',
-        route: '/completion-celebration',
+        route: '/progress-history',
         index: 3,
       ),
     ];
