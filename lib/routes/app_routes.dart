@@ -12,6 +12,7 @@ import '../presentation/audio_library/audio_library_selection.dart';
 import '../presentation/reminder_detail/reminder_detail.dart';
 import '../presentation/completion_feedback/completion_feedback.dart';
 import '../presentation/completion_feedback/feedback_edit_screen.dart';
+import '../presentation/progress/progress_history_screen.dart';
 
 class AppRoutes {
   static const String initial = '/';
@@ -20,6 +21,7 @@ class AppRoutes {
   static const String settings = '/settings';
   static const String notificationSettings = '/notification-settings';
   static const String completionCelebration = '/completion-celebration';
+  static const String progressHistory = '/progress-history';
   static const String createReminder = '/create-reminder';
   static const String reminderManagement = '/reminder-management';
   static const String audioLibrary = '/audio-library';
@@ -53,6 +55,7 @@ class AppRoutes {
       
       return const CompletionCelebration();
     },
+    progressHistory: (context) => const ProgressHistoryScreen(),
     createReminder: (context) => const CreateReminder(),
     reminderManagement: (context) => const ReminderManagement(),
     audioLibrary: (context) => const AudioLibrary(),
