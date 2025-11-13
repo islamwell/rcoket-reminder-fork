@@ -60,16 +60,18 @@ class ReminderStorageService {
     // ALWAYS save locally first for immediate response
     final reminder = await _saveReminderLocally(reminderData);
     print('ReminderStorageService: Saved reminder locally with ID: ${reminder['id']}');
-    
-    // Schedule background notification for the new reminder if it's active
+
+    // Schedule background notification asynchronously (non-blocking for faster UI response)
     if (reminder['status'] == 'active' && enableNotifications) {
-      try {
-        await BackgroundTaskManager.instance.rescheduleReminder(reminder['id']);
-        print('ReminderStorageService: Scheduled background notification for new reminder ${reminder['id']}');
-      } catch (e) {
-        print('ReminderStorageService: Error scheduling background notification for new reminder ${reminder['id']}: $e');
-        // Continue without background scheduling - foreground notifications will still work
-      }
+      // Run in background without awaiting to avoid blocking the save operation
+      unawaited(
+        BackgroundTaskManager.instance.rescheduleReminder(reminder['id']).then((_) {
+          print('ReminderStorageService: Scheduled background notification for new reminder ${reminder['id']}');
+        }).catchError((e) {
+          print('ReminderStorageService: Error scheduling background notification for new reminder ${reminder['id']}: $e');
+          // Continue without background scheduling - foreground notifications will still work
+        })
+      );
     }
     
     // Sync to Supabase asynchronously (non-blocking)
@@ -201,17 +203,19 @@ class ReminderStorageService {
     // Get the updated reminder for notification rescheduling
     final updatedReminder = await getReminderById(reminderId);
     if (updatedReminder != null) {
-      // Reschedule background notification if reminder properties changed
+      // Reschedule background notification if reminder properties changed (non-blocking)
       final needsReschedule = _shouldRescheduleNotification({}, updatedReminder, updates);
-      
+
       if (needsReschedule) {
-        try {
-          await BackgroundTaskManager.instance.rescheduleReminder(reminderId);
-          print('ReminderStorageService: Rescheduled background notification for updated reminder $reminderId');
-        } catch (e) {
-          print('ReminderStorageService: Error rescheduling background notification for updated reminder $reminderId: $e');
-          // Continue without background scheduling - foreground notifications will still work
-        }
+        // Run in background without awaiting for faster UI response
+        unawaited(
+          BackgroundTaskManager.instance.rescheduleReminder(reminderId).then((_) {
+            print('ReminderStorageService: Rescheduled background notification for updated reminder $reminderId');
+          }).catchError((e) {
+            print('ReminderStorageService: Error rescheduling background notification for updated reminder $reminderId: $e');
+            // Continue without background scheduling - foreground notifications will still work
+          })
+        );
       }
     }
   }
@@ -243,14 +247,15 @@ class ReminderStorageService {
       _syncReminderDeletionToSupabaseAsync(reminderId);
     }
     
-    // Cancel background notification for the deleted reminder
-    try {
-      await BackgroundTaskManager.instance.cancelNotification(reminderId);
-      print('ReminderStorageService: Cancelled background notification for deleted reminder $reminderId');
-    } catch (e) {
-      print('ReminderStorageService: Error cancelling background notification for deleted reminder $reminderId: $e');
-      // Continue - the reminder is already deleted from storage
-    }
+    // Cancel background notification for the deleted reminder (non-blocking)
+    unawaited(
+      BackgroundTaskManager.instance.cancelNotification(reminderId).then((_) {
+        print('ReminderStorageService: Cancelled background notification for deleted reminder $reminderId');
+      }).catchError((e) {
+        print('ReminderStorageService: Error cancelling background notification for deleted reminder $reminderId: $e');
+        // Continue - the reminder is already deleted from storage
+      })
+    );
   }
 
   // Helper method to delete reminder locally
@@ -297,20 +302,25 @@ class ReminderStorageService {
         'nextOccurrenceDateTime': nextOccurrenceDateTime,
       });
       
-      // Handle background notification scheduling based on status change
-      try {
-        if (newStatus == 'paused') {
-          // Cancel background notification when pausing
-          await BackgroundTaskManager.instance.cancelNotification(reminderId);
-          print('ReminderStorageService: Cancelled background notification for paused reminder $reminderId');
-        } else if (newStatus == 'active' && reminder['enableNotifications'] == true) {
-          // Schedule background notification when activating
-          await BackgroundTaskManager.instance.rescheduleReminder(reminderId);
-          print('ReminderStorageService: Scheduled background notification for activated reminder $reminderId');
-        }
-      } catch (e) {
-        print('ReminderStorageService: Error managing background notification for status toggle $reminderId: $e');
-        // Continue - the status change was successful even if background scheduling failed
+      // Handle background notification scheduling based on status change (non-blocking)
+      if (newStatus == 'paused') {
+        // Cancel background notification when pausing (non-blocking)
+        unawaited(
+          BackgroundTaskManager.instance.cancelNotification(reminderId).then((_) {
+            print('ReminderStorageService: Cancelled background notification for paused reminder $reminderId');
+          }).catchError((e) {
+            print('ReminderStorageService: Error cancelling background notification for paused reminder $reminderId: $e');
+          })
+        );
+      } else if (newStatus == 'active' && reminder['enableNotifications'] == true) {
+        // Schedule background notification when activating (non-blocking)
+        unawaited(
+          BackgroundTaskManager.instance.rescheduleReminder(reminderId).then((_) {
+            print('ReminderStorageService: Scheduled background notification for activated reminder $reminderId');
+          }).catchError((e) {
+            print('ReminderStorageService: Error scheduling background notification for activated reminder $reminderId: $e');
+          })
+        );
       }
     }
   }
@@ -358,13 +368,14 @@ class ReminderStorageService {
         nextOccurrence = 'Completed';
         print('DEBUG: Moving to completed status (reached repeat limit)');
         
-        // Cancel background notification when reminder is completed
-        try {
-          await BackgroundTaskManager.instance.cancelNotification(reminderId);
-          print('ReminderStorageService: Cancelled background notification for completed reminder $reminderId');
-        } catch (e) {
-          print('ReminderStorageService: Error cancelling background notification for completed reminder $reminderId: $e');
-        }
+        // Cancel background notification when reminder is completed (non-blocking)
+        unawaited(
+          BackgroundTaskManager.instance.cancelNotification(reminderId).then((_) {
+            print('ReminderStorageService: Cancelled background notification for completed reminder $reminderId');
+          }).catchError((e) {
+            print('ReminderStorageService: Error cancelling background notification for completed reminder $reminderId: $e');
+          })
+        );
       } else {
         // Calculate next occurrence for recurring reminders
         final nextDateTime = _calculateNextOccurrenceAfterCompletion(
@@ -375,14 +386,15 @@ class ReminderStorageService {
         nextOccurrenceDateTime = nextDateTime.toIso8601String();
         print('DEBUG: Staying active, next occurrence: $nextOccurrence');
         
-        // Reschedule background notification for the next occurrence
+        // Reschedule background notification for the next occurrence (non-blocking)
         if (reminder['enableNotifications'] == true) {
-          try {
-            await BackgroundTaskManager.instance.rescheduleReminder(reminderId);
-            print('ReminderStorageService: Rescheduled background notification for recurring reminder $reminderId');
-          } catch (e) {
-            print('ReminderStorageService: Error rescheduling background notification for recurring reminder $reminderId: $e');
-          }
+          unawaited(
+            BackgroundTaskManager.instance.rescheduleReminder(reminderId).then((_) {
+              print('ReminderStorageService: Rescheduled background notification for recurring reminder $reminderId');
+            }).catchError((e) {
+              print('ReminderStorageService: Error rescheduling background notification for recurring reminder $reminderId: $e');
+            })
+          );
         }
       }
       
@@ -437,13 +449,14 @@ class ReminderStorageService {
       'completedAt': DateTime.now().toIso8601String(),
     });
     
-    // Cancel background notification when manually completing
-    try {
-      await BackgroundTaskManager.instance.cancelNotification(reminderId);
-      print('ReminderStorageService: Cancelled background notification for manually completed reminder $reminderId');
-    } catch (e) {
-      print('ReminderStorageService: Error cancelling background notification for manually completed reminder $reminderId: $e');
-    }
+    // Cancel background notification when manually completing (non-blocking)
+    unawaited(
+      BackgroundTaskManager.instance.cancelNotification(reminderId).then((_) {
+        print('ReminderStorageService: Cancelled background notification for manually completed reminder $reminderId');
+      }).catchError((e) {
+        print('ReminderStorageService: Error cancelling background notification for manually completed reminder $reminderId: $e');
+      })
+    );
   }
 
   // Snooze a reminder for a specified number of minutes
@@ -463,13 +476,14 @@ class ReminderStorageService {
       'nextOccurrenceDateTime': snoozeUntil.toIso8601String(),
     });
     
-    // Schedule background notification for snooze time
-    try {
-      await BackgroundTaskManager.instance.rescheduleReminder(reminderId);
-      print('ReminderStorageService: Scheduled background notification for snoozed reminder $reminderId');
-    } catch (e) {
-      print('ReminderStorageService: Error scheduling background notification for snoozed reminder $reminderId: $e');
-    }
+    // Schedule background notification for snooze time (non-blocking)
+    unawaited(
+      BackgroundTaskManager.instance.rescheduleReminder(reminderId).then((_) {
+        print('ReminderStorageService: Scheduled background notification for snoozed reminder $reminderId');
+      }).catchError((e) {
+        print('ReminderStorageService: Error scheduling background notification for snoozed reminder $reminderId: $e');
+      })
+    );
     
     // Schedule a timer to revert status back to active after snooze period
     Timer(Duration(minutes: snoozeMinutes), () async {
@@ -2162,20 +2176,25 @@ class ReminderStorageService {
             'nextOccurrenceDateTime': nextOccurrenceDateTime,
           });
           
-          // Handle background notification scheduling based on status change
-          try {
-            if (newStatus == 'paused') {
-              // Cancel background notification when pausing
-              await BackgroundTaskManager.instance.cancelNotification(reminderId);
-              print('ReminderStorageService: Cancelled background notification for paused reminder $reminderId');
-            } else if (newStatus == 'active' && reminder['enableNotifications'] == true) {
-              // Schedule background notification when activating
-              await BackgroundTaskManager.instance.rescheduleReminder(reminderId);
-              print('ReminderStorageService: Scheduled background notification for activated reminder $reminderId');
-            }
-          } catch (e) {
-            print('ReminderStorageService: Error managing background notification for status toggle $reminderId: $e');
-            // Continue - the status change was successful even if background scheduling failed
+          // Handle background notification scheduling based on status change (non-blocking)
+          if (newStatus == 'paused') {
+            // Cancel background notification when pausing (non-blocking)
+            unawaited(
+              BackgroundTaskManager.instance.cancelNotification(reminderId).then((_) {
+                print('ReminderStorageService: Cancelled background notification for paused reminder $reminderId');
+              }).catchError((e) {
+                print('ReminderStorageService: Error cancelling background notification for paused reminder $reminderId: $e');
+              })
+            );
+          } else if (newStatus == 'active' && reminder['enableNotifications'] == true) {
+            // Schedule background notification when activating (non-blocking)
+            unawaited(
+              BackgroundTaskManager.instance.rescheduleReminder(reminderId).then((_) {
+                print('ReminderStorageService: Scheduled background notification for activated reminder $reminderId');
+              }).catchError((e) {
+                print('ReminderStorageService: Error scheduling background notification for activated reminder $reminderId: $e');
+              })
+            );
           }
         }
       },
@@ -2200,14 +2219,15 @@ class ReminderStorageService {
           _syncReminderDeletionToSupabaseAsync(reminderId);
         }
         
-        // Cancel background notification for the deleted reminder
-        try {
-          await BackgroundTaskManager.instance.cancelNotification(reminderId);
-          print('ReminderStorageService: Cancelled background notification for deleted reminder $reminderId');
-        } catch (e) {
-          print('ReminderStorageService: Error cancelling background notification for deleted reminder $reminderId: $e');
-          // Continue - the reminder is already deleted from storage
-        }
+        // Cancel background notification for the deleted reminder (non-blocking)
+        unawaited(
+          BackgroundTaskManager.instance.cancelNotification(reminderId).then((_) {
+            print('ReminderStorageService: Cancelled background notification for deleted reminder $reminderId');
+          }).catchError((e) {
+            print('ReminderStorageService: Error cancelling background notification for deleted reminder $reminderId: $e');
+            // Continue - the reminder is already deleted from storage
+          })
+        );
       },
       operationName: 'delete reminder',
       onStatusUpdate: onStatusUpdate,
@@ -2235,17 +2255,19 @@ class ReminderStorageService {
         // Get the updated reminder for notification rescheduling
         final updatedReminder = await getReminderById(reminderId);
         if (updatedReminder != null) {
-          // Reschedule background notification if reminder properties changed
+          // Reschedule background notification if reminder properties changed (non-blocking)
           final needsReschedule = _shouldRescheduleNotification({}, updatedReminder, updates);
-          
+
           if (needsReschedule) {
-            try {
-              await BackgroundTaskManager.instance.rescheduleReminder(reminderId);
-              print('ReminderStorageService: Rescheduled background notification for updated reminder $reminderId');
-            } catch (e) {
-              print('ReminderStorageService: Error rescheduling background notification for updated reminder $reminderId: $e');
-              // Continue without background scheduling - foreground notifications will still work
-            }
+            // Run in background without awaiting for faster UI response
+            unawaited(
+              BackgroundTaskManager.instance.rescheduleReminder(reminderId).then((_) {
+                print('ReminderStorageService: Rescheduled background notification for updated reminder $reminderId');
+              }).catchError((e) {
+                print('ReminderStorageService: Error rescheduling background notification for updated reminder $reminderId: $e');
+                // Continue without background scheduling - foreground notifications will still work
+              })
+            );
           }
         }
       },
