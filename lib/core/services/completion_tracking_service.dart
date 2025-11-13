@@ -141,6 +141,7 @@ class CompletionTrackingService {
   }
 
   /// Get completion history for a user
+  /// Always merges local and Supabase data to ensure nothing is lost
   Future<List<Map<String, dynamic>>> getCompletionHistory({
     int? reminderId,
     String? category,
@@ -149,59 +150,87 @@ class CompletionTrackingService {
     int? limit,
   }) async {
     try {
+      List<Map<String, dynamic>> allCompletions = [];
+
+      // Always get local completions first
+      final localCompletions = await _getCompletionsLocally();
+      print('CompletionTrackingService: Loaded ${localCompletions.length} completions from local storage');
+      allCompletions.addAll(localCompletions);
+
       // Try to get from Supabase if user is authenticated and not in guest mode
       if (_shouldUseSupabase()) {
         try {
           final userId = _authService.currentUser?['id'];
           // Use the SupabaseService select method instead of direct client access
           final filters = <String, dynamic>{'user_id': userId};
-          
+
           if (reminderId != null) {
             filters['reminder_id'] = reminderId;
           }
-          
+
           if (category != null) {
             filters['reminder_category'] = category;
           }
 
-          final completions = await _supabaseService.select(
+          final supabaseCompletions = await _supabaseService.select(
             _completionsTable,
             filters: filters,
           );
-          
-          // Apply additional filtering for date ranges and limit locally
-          var filteredCompletions = completions;
-          
-          if (startDate != null || endDate != null) {
-            filteredCompletions = completions.where((completion) {
-              final completedAt = DateTime.parse(completion['completed_at'] as String);
-              if (startDate != null && completedAt.isBefore(startDate)) return false;
-              if (endDate != null && completedAt.isAfter(endDate)) return false;
-              return true;
-            }).toList();
+
+          print('CompletionTrackingService: Loaded ${supabaseCompletions.length} completions from Supabase');
+
+          // Merge Supabase completions, avoiding duplicates
+          for (final supabaseCompletion in supabaseCompletions) {
+            final existsInLocal = allCompletions.any((local) =>
+              local['id'] == supabaseCompletion['id'] ||
+              (local['reminder_id'] == supabaseCompletion['reminder_id'] &&
+               local['completed_at'] == supabaseCompletion['completed_at'])
+            );
+
+            if (!existsInLocal) {
+              allCompletions.add(supabaseCompletion);
+            }
           }
-          
-          // Sort by completion date (most recent first)
-          filteredCompletions.sort((a, b) {
-            final aDate = DateTime.parse(a['completed_at'] as String);
-            final bDate = DateTime.parse(b['completed_at'] as String);
-            return bDate.compareTo(aDate);
-          });
-          
-          if (limit != null && filteredCompletions.length > limit) {
-            filteredCompletions = filteredCompletions.take(limit).toList();
-          }
-          print('CompletionTrackingService: Loaded ${filteredCompletions.length} completions from Supabase');
-          
-          return filteredCompletions;
         } catch (e) {
-          print('CompletionTrackingService: Error loading from Supabase, falling back to local storage: $e');
-          return await _getCompletionsLocally();
+          print('CompletionTrackingService: Error loading from Supabase, using local data only: $e');
+          // Continue with local data only
         }
-      } else {
-        // Get from local storage for guest users or when Supabase is not available
-        return await _getCompletionsLocally();
       }
+
+      // Apply filtering for reminderId, category, and date ranges
+      var filteredCompletions = allCompletions;
+
+      if (reminderId != null) {
+        filteredCompletions = filteredCompletions.where((c) => c['reminder_id'] == reminderId).toList();
+      }
+
+      if (category != null) {
+        filteredCompletions = filteredCompletions.where((c) => c['reminder_category'] == category).toList();
+      }
+
+      if (startDate != null || endDate != null) {
+        filteredCompletions = filteredCompletions.where((completion) {
+          final completedAt = DateTime.parse(completion['completed_at'] as String);
+          if (startDate != null && completedAt.isBefore(startDate)) return false;
+          if (endDate != null && completedAt.isAfter(endDate)) return false;
+          return true;
+        }).toList();
+      }
+
+      // Sort by completion date (most recent first)
+      filteredCompletions.sort((a, b) {
+        final aDate = DateTime.parse(a['completed_at'] as String);
+        final bDate = DateTime.parse(b['completed_at'] as String);
+        return bDate.compareTo(aDate);
+      });
+
+      if (limit != null && filteredCompletions.length > limit) {
+        filteredCompletions = filteredCompletions.take(limit).toList();
+      }
+
+      print('CompletionTrackingService: Returning ${filteredCompletions.length} total completions after filtering');
+
+      return filteredCompletions;
     } catch (e) {
       await ErrorHandlingService.instance.logError(
         'COMPLETION_HISTORY_ERROR',
@@ -209,7 +238,13 @@ class CompletionTrackingService {
         severity: ErrorSeverity.error,
         stackTrace: StackTrace.current,
       );
-      return [];
+      // Fallback to local storage on any error
+      try {
+        return await _getCompletionsLocally();
+      } catch (localError) {
+        print('CompletionTrackingService: Error loading from local storage: $localError');
+        return [];
+      }
     }
   }
 
