@@ -799,10 +799,11 @@ class _ProgressHistoryScreenState extends State<ProgressHistoryScreen>
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
           padding: EdgeInsets.all(6.w),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               Row(
                 children: [
                   Container(
@@ -925,6 +926,7 @@ class _ProgressHistoryScreenState extends State<ProgressHistoryScreen>
                 ),
               ),
             ],
+            ),
           ),
         );
       },

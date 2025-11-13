@@ -120,28 +120,47 @@ class BackgroundTaskManager {
   }
 
   /// Handle app lifecycle state changes
+  /// Made non-blocking to prevent UI freezing during state transitions
   Future<void> handleAppStateChange(AppLifecycleState state) async {
     final previousState = _currentAppState;
     _currentAppState = state;
-    
+
     print('BackgroundTaskManager: App state changed from $previousState to $state');
-    
+
     switch (state) {
       case AppLifecycleState.paused:
-        // App is going to background - ensure all notifications are scheduled
-        await scheduleAllActiveReminders();
+        // App is going to background - ensure all notifications are scheduled (non-blocking)
+        unawaited(
+          scheduleAllActiveReminders().then((_) {
+            print('BackgroundTaskManager: Background scheduling completed after app pause');
+          }).catchError((e) {
+            print('BackgroundTaskManager: Error scheduling after pause: $e');
+          })
+        );
         break;
-        
+
       case AppLifecycleState.resumed:
-        // App is coming to foreground - check for any missed notifications
-        await _handleAppResumed();
+        // App is coming to foreground - check for any missed notifications (non-blocking)
+        unawaited(
+          _handleAppResumed().then((_) {
+            print('BackgroundTaskManager: Resume handling completed');
+          }).catchError((e) {
+            print('BackgroundTaskManager: Error handling resume: $e');
+          })
+        );
         break;
-        
+
       case AppLifecycleState.detached:
-        // App is being terminated - final cleanup
-        await _handleAppDetached();
+        // App is being terminated - final cleanup (non-blocking)
+        unawaited(
+          _handleAppDetached().then((_) {
+            print('BackgroundTaskManager: Detach handling completed');
+          }).catchError((e) {
+            print('BackgroundTaskManager: Error handling detach: $e');
+          })
+        );
         break;
-        
+
       default:
         break;
     }
@@ -152,11 +171,15 @@ class BackgroundTaskManager {
     try {
       // Cancel any pending notifications that might have been handled by foreground
       await _cancelExpiredNotifications();
-      
-      // Reschedule all active reminders to ensure accuracy
-      await scheduleAllActiveReminders();
-      
-      print('BackgroundTaskManager: App resumed, notifications rescheduled');
+
+      // Reschedule all active reminders to ensure accuracy (non-blocking)
+      unawaited(
+        scheduleAllActiveReminders().then((_) {
+          print('BackgroundTaskManager: App resumed, notifications rescheduled');
+        }).catchError((e) {
+          print('BackgroundTaskManager: Error rescheduling on resume: $e');
+        })
+      );
     } catch (e) {
       print('BackgroundTaskManager: Error handling app resume: $e');
     }
@@ -165,9 +188,14 @@ class BackgroundTaskManager {
   /// Handle app being terminated
   Future<void> _handleAppDetached() async {
     try {
-      // Ensure all active reminders have background notifications scheduled
-      await scheduleAllActiveReminders();
-      print('BackgroundTaskManager: App detached, background notifications ensured');
+      // Ensure all active reminders have background notifications scheduled (non-blocking)
+      unawaited(
+        scheduleAllActiveReminders().then((_) {
+          print('BackgroundTaskManager: App detached, background notifications ensured');
+        }).catchError((e) {
+          print('BackgroundTaskManager: Error scheduling on detach: $e');
+        })
+      );
     } catch (e) {
       print('BackgroundTaskManager: Error handling app detach: $e');
     }
