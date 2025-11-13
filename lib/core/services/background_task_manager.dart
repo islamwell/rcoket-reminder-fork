@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest.dart' as tz;
 import 'reminder_storage_service.dart';
 import 'notification_service.dart';
 import 'error_handling_service.dart';
@@ -26,7 +28,6 @@ class BackgroundTaskManager {
   bool _isInitialized = false;
   AppLifecycleState? _currentAppState;
   Timer? _scheduleCheckTimer;
-  final Map<int, Timer> _scheduledTimers = {};
   
   /// Initialize the background task manager
   Future<void> initialize() async {
@@ -76,6 +77,9 @@ class BackgroundTaskManager {
 
   /// Initialize native notifications
   Future<void> _initializeNotifications() async {
+    // Initialize timezone data for scheduling
+    tz.initializeTimeZones();
+
     // Android initialization
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -196,10 +200,10 @@ class BackgroundTaskManager {
           );
           
           print('BackgroundTaskManager: Scheduling ${activeReminders.length} active reminders');
-          
-          // Cancel all existing notifications and timers first
-          await cancelAllNotifications();
-          
+
+          // NOTE: We don't cancel all notifications here to preserve properly scheduled ones
+          // Individual reminders will be rescheduled as needed
+
           int successCount = 0;
           int failureCount = 0;
           
@@ -277,11 +281,9 @@ class BackgroundTaskManager {
           
           // Create notification payload
           final payload = _createNotificationPayload(reminder);
-          
-          // Calculate delay until the scheduled time
-          final delay = nextOccurrenceDateTime.difference(DateTime.now());
-          
-          if (delay.isNegative) {
+
+          // Check if the scheduled time is in the future
+          if (nextOccurrenceDateTime.isBefore(DateTime.now())) {
             await ErrorHandlingService.instance.logError(
               'PAST_NOTIFICATION_SKIPPED',
               'Skipping past notification for reminder $notificationId',
@@ -293,68 +295,76 @@ class BackgroundTaskManager {
             );
             return;
           }
-          
-          // Cancel any existing timer for this reminder
-          _scheduledTimers[notificationId]?.cancel();
-          
-          // Use a timer to schedule the notification (this is a simplified approach)
-          _scheduledTimers[notificationId] = Timer(delay, () async {
-            try {
-              await _flutterLocalNotificationsPlugin.show(
-                notificationId,
-                'Reminder: $title',
-                'Time for your $category reminder',
-                const NotificationDetails(
-                  android: AndroidNotificationDetails(
-                    'reminder_channel',
-                    'Reminders',
-                    channelDescription: 'Notifications for scheduled reminders',
-                    importance: Importance.high,
-                    priority: Priority.high,
-                    showWhen: true,
-                    enableVibration: true,
-                    playSound: true,
-                  ),
-                  iOS: DarwinNotificationDetails(
-                    presentAlert: true,
-                    presentBadge: true,
-                    presentSound: true,
-                  ),
-                ),
-                payload: payload,
-              );
-              
-              await ErrorHandlingService.instance.logError(
-                'NOTIFICATION_TRIGGERED',
-                'Successfully triggered notification for reminder $notificationId',
-                severity: ErrorSeverity.info,
-                metadata: {'reminderId': notificationId},
-              );
-            } catch (e) {
-              await ErrorHandlingService.instance.logError(
-                'NOTIFICATION_TRIGGER_ERROR',
-                'Failed to trigger notification for reminder $notificationId: $e',
-                severity: ErrorSeverity.error,
-                metadata: {'reminderId': notificationId},
-              );
-            }
-            
-            // Remove the timer from our tracking map
-            _scheduledTimers.remove(notificationId);
-          });
-          
+
+          // Convert to timezone-aware date
+          final scheduledTZDate = tz.TZDateTime.from(nextOccurrenceDateTime, tz.local);
+
+          // Android notification details with FULLSCREEN INTENT for lock screen
+          const AndroidNotificationDetails androidPlatformChannelSpecifics =
+              AndroidNotificationDetails(
+            'reminder_channel',
+            'Reminders',
+            channelDescription: 'Notifications for scheduled reminders',
+            importance: Importance.max,        // CRITICAL: Max importance for lock screen
+            priority: Priority.max,            // CRITICAL: Max priority for lock screen
+            showWhen: true,
+            enableVibration: true,
+            playSound: true,
+            fullScreenIntent: true,            // CRITICAL: Shows on lock screen
+            category: AndroidNotificationCategory.alarm,  // CRITICAL: Bypasses DND
+            visibility: NotificationVisibility.public,    // Shows on lock screen
+            autoCancel: false,                 // Persists until user action
+            ongoing: true,                     // Cannot be swiped away
+          );
+
+          // iOS notification details
+          const DarwinNotificationDetails iOSPlatformChannelSpecifics =
+              DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          );
+
+          // Combined notification details
+          const NotificationDetails platformChannelSpecifics = NotificationDetails(
+            android: androidPlatformChannelSpecifics,
+            iOS: iOSPlatformChannelSpecifics,
+          );
+
+          // Use zonedSchedule for proper native scheduling that survives app death
+          await _flutterLocalNotificationsPlugin.zonedSchedule(
+            notificationId,
+            'Reminder: $title',
+            'Time for your $category reminder',
+            scheduledTZDate,
+            platformChannelSpecifics,
+            payload: payload,
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,  // Works in Doze mode
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+          );
+
+
           await ErrorHandlingService.instance.logError(
             'REMINDER_SCHEDULED',
-            'Scheduled notification for reminder ${reminder['id']} at $nextOccurrenceDateTime',
+            'Scheduled FULLSCREEN notification for reminder ${reminder['id']} at $nextOccurrenceDateTime',
             severity: ErrorSeverity.info,
             metadata: {
               'reminderId': reminder['id'],
-              'scheduledTime': nextOccurrenceDateTime.toIso8601String(),
-              'delayMinutes': delay.inMinutes,
+              'scheduledTime': scheduledTZDate.toIso8601String(),
+              'method': 'zonedSchedule',
+              'fullscreenIntent': true,
             },
           );
-          
-          print('BackgroundTaskManager: Scheduled notification for reminder ${reminder['id']} at $nextOccurrenceDateTime');
+
+          print('BackgroundTaskManager: ✓ Scheduled FULLSCREEN notification for reminder ${reminder['id']}');
+          print('  - Scheduled time: $scheduledTZDate');
+          print('  - Method: zonedSchedule (survives app death)');
+          print('  - Importance: MAX');
+          print('  - Priority: MAX');
+          print('  - Full screen intent: ENABLED');
+          print('  - Category: ALARM');
+          print('  - Schedule mode: exactAllowWhileIdle (works in Doze)');
         } catch (e) {
           await ErrorHandlingService.instance.logError(
             'SCHEDULE_REMINDER_ERROR',
@@ -511,10 +521,6 @@ class BackgroundTaskManager {
   /// Cancel a specific notification
   Future<void> cancelNotification(dynamic reminderId) async {
     try {
-      // Cancel the timer if it exists
-      _scheduledTimers[reminderId]?.cancel();
-      _scheduledTimers.remove(reminderId);
-      
       await _flutterLocalNotificationsPlugin.cancel(reminderId);
       print('BackgroundTaskManager: Cancelled notification for reminder $reminderId');
     } catch (e) {
@@ -525,12 +531,6 @@ class BackgroundTaskManager {
   /// Cancel all notifications
   Future<void> cancelAllNotifications() async {
     try {
-      // Cancel all timers
-      for (final timer in _scheduledTimers.values) {
-        timer.cancel();
-      }
-      _scheduledTimers.clear();
-      
       await _flutterLocalNotificationsPlugin.cancelAll();
       print('BackgroundTaskManager: Cancelled all notifications');
     } catch (e) {
@@ -602,13 +602,7 @@ class BackgroundTaskManager {
   void dispose() {
     _scheduleCheckTimer?.cancel();
     _scheduleCheckTimer = null;
-    
-    // Cancel all scheduled timers
-    for (final timer in _scheduledTimers.values) {
-      timer.cancel();
-    }
-    _scheduledTimers.clear();
-    
+
     _isInitialized = false;
     print('BackgroundTaskManager: Disposed');
   }

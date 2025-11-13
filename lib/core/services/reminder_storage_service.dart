@@ -815,13 +815,13 @@ class ReminderStorageService {
       try {
         final nextOccurrenceDateTime = DateTime.parse(nextOccurrenceDateTimeStr);
         print('  Next occurrence DateTime: $nextOccurrenceDateTime');
-        
-        // Check if current time is at or past the scheduled time (within 1 minute tolerance)
+
+        // Check if current time is at or past the scheduled time (within 5 minute tolerance for missed reminders)
         final difference = now.difference(nextOccurrenceDateTime);
-        final shouldTrigger = difference.inSeconds >= 0 && difference.inMinutes <= 1;
-        
+        final shouldTrigger = difference.inSeconds >= 0 && difference.inMinutes <= 5;
+
         print('  Time difference: ${difference.inSeconds} seconds');
-        print('  Should trigger: $shouldTrigger');
+        print('  Should trigger: $shouldTrigger (within 5-minute window)');
         return shouldTrigger;
       } catch (e) {
         print('  Error parsing nextOccurrenceDateTime: $e');
